@@ -1,0 +1,14 @@
+[Unit]
+Description=FDE Exam Coach 备考系统
+After=network.target
+
+[Service]
+User=__USER__
+WorkingDirectory=/opt/fde-exam-coach/app
+# 仅监听本机回环；--allowed-host 放行反向代理转发的域名
+ExecStart=/usr/bin/python3 server.py --port 8765 --allowed-host __DOMAIN__
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

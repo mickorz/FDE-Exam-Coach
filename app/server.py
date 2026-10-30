@@ -20,6 +20,26 @@ STATE_PATH = ROOT / 'local-data' / 'progress.json'
 BANK = None       # 题目 id -> question，懒加载
 AI = None         # AIStore 单例，随 data-dir 初始化
 
+# 允许的 Host 白名单：默认仅本机；部署到服务器经反向代理访问时用 --allowed-host 放行域名
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+
+
+def configure_allowed_hosts(spec=''):
+    """设置 Host 白名单，spec 为逗号分隔域名；本机回环始终保留。"""
+    global ALLOWED_HOSTS
+    extra = [h.strip().lower() for h in (spec or '').split(',') if h.strip()]
+    ALLOWED_HOSTS = list(dict.fromkeys(['127.0.0.1', 'localhost'] + extra))
+
+
+def origin_allowed(origin, host_header):
+    """写操作同源校验：Host 必须在白名单内；Origin 若提供须与 Host 同源（http/https 均可，兼容反向代理 TLS）。"""
+    host = host_header.split(':')[0].lower()
+    if host not in ALLOWED_HOSTS:
+        return False
+    if not origin:
+        return True
+    return origin.rstrip('/') in ('http://' + host_header, 'https://' + host_header)
+
 
 def bank():
     global BANK
@@ -64,8 +84,7 @@ def save_state(state):
 
 class Handler(BaseHTTPRequestHandler):
     def valid_host(self):
-        host=self.headers.get('Host','').split(':')[0]
-        return host in ('127.0.0.1','localhost')
+        return self.headers.get('Host','').split(':')[0].lower() in ALLOWED_HOSTS
 
     def reply(self, code, content, mime='application/json; charset=utf-8'):
         body = content if isinstance(content, bytes) else json.dumps(content, ensure_ascii=False).encode()
@@ -97,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path != '/api/ai/explain': return self.reply(404, {'error':'未找到'})
         origin = self.headers.get('Origin')
-        if origin and origin != 'http://' + self.headers.get('Host',''):
+        if not origin_allowed(origin, self.headers.get('Host','')):
             return self.reply(403, {'error':'拒绝跨站写入'})
         try:
             length = int(self.headers.get('Content-Length','0'))
@@ -122,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host(): return self.reply(403, {'error':'只允许本机访问'})
         if self.path != '/api/state': return self.reply(404, {'error':'未找到'})
         origin = self.headers.get('Origin')
-        if origin and origin != 'http://' + self.headers.get('Host',''):
+        if not origin_allowed(origin, self.headers.get('Host','')):
             return self.reply(403, {'error':'拒绝跨站写入'})
         if self.headers.get('X-FDE-Client') != 'offline-study': return self.reply(403, {'error':'请求标识无效'})
         try:
@@ -142,8 +161,10 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--data-dir', type=Path)
+    parser.add_argument('--allowed-host', default='', help='反向代理部署时放行的域名，逗号分隔')
     args = parser.parse_args()
     if args.data_dir: STATE_PATH = args.data_dir / 'progress.json'
+    configure_allowed_hosts(args.allowed_host)
     init_ai()
     try:
         httpd=ThreadingHTTPServer(('127.0.0.1', args.port), Handler)

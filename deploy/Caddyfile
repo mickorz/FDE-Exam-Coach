@@ -1,0 +1,8 @@
+# FDE Exam Coach 站点（Caddy 自动申请并续期 HTTPS 证书，要求域名已备案且安全组放行 80/443）
+__DOMAIN__ {
+	# 网站访问密码认证：应用自身无登录系统，靠这一层挡住公网匿名读写与 AI 盗刷
+	basic_auth {
+		__AUTH_USER__ __AUTH_HASH__
+	}
+	reverse_proxy 127.0.0.1:8765
+}
