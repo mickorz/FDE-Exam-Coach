@@ -113,6 +113,15 @@ class EndToEndTests(unittest.TestCase):
         question = bank[0]
         wrong_answer = [k for k in question["options"] if k not in question["answer"]][0]
 
+        # 1.5 PWA 资源可访问（FR-011-02 添加到主屏幕）
+        with urllib.request.urlopen(self.base + "/manifest.webmanifest", timeout=10) as r:
+            manifest = json.loads(r.read().decode("utf-8"))
+            self.assertEqual(manifest["display"], "standalone")
+        for icon in ("/icon-192.png", "/icon-512.png"):
+            with urllib.request.urlopen(self.base + icon, timeout=10) as r:
+                self.assertEqual(r.headers["Content-Type"], "image/png")
+                self.assertEqual(r.read()[:8], b"\x89PNG\r\n\x1a\n")
+
         # 2. 作答记录：答错（模拟浏览器经 /api/state 提交的学习记录，含练习模式与题目版本）
         attempt = {"at": 1, "answers": [wrong_answer], "correct": False, "questionVersion": question["review"]["contentHash"], "mode": "chapter"}
         status, body = self.request("/api/state", "PUT", {"schemaVersion": 1, "revision": 0, "records": {question["id"]: {"attempts": [attempt], "favorite": False}}, "sessions": [], "activeExam": None, "settings": {"targetDate": "2026-11-23"}})

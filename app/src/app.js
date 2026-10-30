@@ -183,5 +183,5 @@ async function init(){try{
  const responses=await Promise.all([fetch('/data/questions.json'),fetch('/data/manifest.json'),fetch('/data/quality.json'),fetch('/data/rounds.json')]);
  rounds=(await responses[3].json()).rounds;questions=await responses[0].json();manifest=await responses[1].json();const quality=await responses[2].json();const audit=new Map(quality.questions.map(q=>[q.id,q]));questions=questions.map(q=>({...q,quality:audit.get(q.id)||{examUse:'hold',rationale:'缺少本轮质量记录'}}));questions=questions.filter(q=>q.review?.status==='approved');byId=new Map(questions.map(q=>[q.id,q]));
  await store.load();if(state().activeExam)page='exam';render();tick();setInterval(tick,1000);
- }catch(error){$('#app').innerHTML=`<main class="fatal"><h1>暂时无法加载本地学习软件</h1><p>${esc(error.message)}</p><p>请从“启动备考.command”启动；如果是记录文件损坏，请先备份 local-data 目录。</p><button onclick="location.reload()">重试</button></main>`;}}
+ }catch(error){$('#app').innerHTML=`<main class="fatal"><h1>暂时无法加载本地学习软件</h1><p>${esc(error.message)}</p><p>请从“启动备考”脚本启动；如果是记录文件损坏，请先备份 local-data 目录。若是手机通过 Tailscale 访问，请确认电脑已开机、备考服务在运行，并执行 tailscale serve status 检查。</p><button onclick="location.reload()">重试</button></main>`;}}
 init();

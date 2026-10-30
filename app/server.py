@@ -10,6 +10,8 @@ import argparse, json, os, sys, tempfile, threading, mimetypes, urllib.parse
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
+mimetypes.add_type('application/manifest+json', '.webmanifest')
+
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))  # 支持 ai/ 包导入
 from ai import service as ai_service  # noqa: E402
@@ -103,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, state)
             except Exception: return self.reply(500, {'error':'本地记录文件无法读取，请先备份 local-data 目录，不会自动覆盖。'})
         if path == '/api/health': return self.reply(200, {'app':'fde-study','version':'1.2.0','root':str(ROOT),'dataPath':str(STATE_PATH.resolve()),'pid':os.getpid()})
-        allowed = {'/':'index.html', '/index.html':'index.html', '/data/questions.json':'data/questions.json', '/data/manifest.json':'data/manifest.json', '/data/quality.json':'data/quality.json', '/evidence.html':'evidence.html', '/data/rounds.json':'data/rounds.json'}
+        allowed = {'/':'index.html', '/index.html':'index.html', '/data/questions.json':'data/questions.json', '/data/manifest.json':'data/manifest.json', '/data/quality.json':'data/quality.json', '/evidence.html':'evidence.html', '/data/rounds.json':'data/rounds.json', '/manifest.webmanifest':'manifest.webmanifest', '/icon-192.png':'icon-192.png', '/icon-512.png':'icon-512.png'}
         rel = allowed.get(path)
         if path.startswith('/src/'): rel = path.lstrip('/')
         if not rel: return self.reply(404, {'error':'未找到'})

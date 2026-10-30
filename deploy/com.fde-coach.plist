@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Mac mini 开机自启 + 崩溃自动重启（FR-011-04）。
+     安装：把 __APP_DIR__ 替换为仓库绝对路径后执行
+       cp deploy/com.fde-coach.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.fde-coach.plist
+     状态：launchctl list | grep fde ；卸载：launchctl unload ~/Library/LaunchAgents/com.fde-coach.plist -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.fde.coach</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/python3</string>
+		<string>server.py</string>
+		<string>--port</string>
+		<string>8765</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__APP_DIR__/app</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__APP_DIR__/app/local-data/server.log</string>
+	<key>StandardErrorPath</key>
+	<string>__APP_DIR__/app/local-data/server.log</string>
+</dict>
+</plist>

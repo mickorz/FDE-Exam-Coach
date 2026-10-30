@@ -25,3 +25,19 @@
 .ai-output h4{margin:14px 0 4px;font-size:13px;color:#3d5578}
 .ai-output ul{margin:4px 0;padding-left:20px}
 .ai-conflict{border:1px solid #e3c17c;background:#fff8ea;color:#7a5a17;padding:10px 12px;border-radius:6px;font-size:13px}
+
+/* Tailscale 手机访问适配（FR-011-02） */
+button,label.option,.file-button{touch-action:manipulation}
+@media(max-width:760px){
+  /* 16px 以上避免 iOS Safari 聚焦输入框时自动放大页面 */
+  input,select{font-size:16px}
+  .today-actions button{flex:1 1 100%}
+  .today-metrics{gap:10px;margin:14px 0 18px}
+  .metrics strong{font-size:24px}
+  .today-hero h2 strong.countdown{font-size:32px}
+  .error-types{gap:6px}
+  .error-types b{flex-basis:100%}
+  .ai-head{gap:8px}
+  .ai-head button{margin-left:auto}
+  .exam-bar{position:sticky;top:0;background:#fff;z-index:2;padding:8px 0}
+}
