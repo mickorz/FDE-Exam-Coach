@@ -27,3 +27,10 @@ Host 白名单防住了 DNS rebinding（任意攻击者域名 → 127.0.0.1）�
 - 任何"本机白名单 + 反向代理"组合的 Web 应用，接入 `tailscale serve` 前先确认代理是否保留原始 Host；保留则必须放行 `*.ts.net`（或显式 `--allowed-host <机器名>.ts.net`）。
 - 放行 `*.ts.net` 的安全性前提：写路径有 Origin 同源校验（本应用 `origin_allowed` 满足）；若应用只靠 Host 防护，须另行评估。
 - 别忘了 Origin/Host 端口形态差异（443 显式 vs 省略），否则读通了写仍 403。
+
+## 实证补记（2026-10-31 凌晨，serve 真实链路）
+
+授权登录后经 `tailscale serve`（https://fde-coach-mac.tail8c843b.ts.net/）用 socks5 代理走真实路径实测，确认上述推断成立：
+- serve **确实保留 `.ts.net` Host 转发**：PUT + `Origin: https://<机器名>.ts.net` → 200（若 Host 被改写为回环，Origin 同源校验必拒）。
+- 恶意 Origin（evil.com）PUT → 403，防护链在 serve 形态下正常。
+- 另注意：写操作还需携带 `X-FDE-Client: offline-study` 头（应用第三道防护），测试脚本别漏。
