@@ -1,0 +1,8 @@
+{
+  "name": "fde-exam-coach",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/core.test.mjs tests/store.test.mjs tests/round1.test.mjs tests/coach.test.mjs tests/bank.test.mjs tests/today.test.mjs"
+  }
+}

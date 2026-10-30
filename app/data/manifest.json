@@ -1,0 +1,90 @@
+{
+  "version": "2026.10.13.3",
+  "verifiedAt": "2026-10-13",
+  "published": 958,
+  "target": 1000,
+  "scoring": "local-practice",
+  "notes": [
+    "非官方原创模拟题，依据公开产品资料编写；不保证命中率或与真实考试等难。",
+    "核心500题：原400题全部逐题复核（118修订、282保留），加此前重写100题；其余458仅学习、42待修订。",
+    "本轮100题由同一助手编写并复核，不冒称独立审校或官方题。",
+    "支持五选项多选、25分钟15题短练及90分钟60题全卷。",
+    "计分为本地练习规则：短练单选6分、多选8分；完整练习单选1.5分、多选2分；70分为练习参考线。",
+    "修订题沿用题号并更新内容哈希；旧作答不计入新版掌握，旧考试继续按快照计分。",
+    "提供核心池15道原创专项练习，覆盖知识治理、评测与数据授权。",
+    "原400题本次为单助手复核，保留逐题理由和118题字段差异；来源日期按实际核对记录保留。"
+  ],
+  "examRuleSource": "https://cloud.tencent.com/edu/training/cert/detail?type=CFD",
+  "drafts": 0,
+  "totalAuthored": 1000,
+  "counts": {
+    "M1/multiple": 32,
+    "M1/single": 68,
+    "M2/multiple": 24,
+    "M2/single": 46,
+    "M3/multiple": 74,
+    "M3/single": 146,
+    "M4/multiple": 84,
+    "M4/single": 166,
+    "M5/multiple": 49,
+    "M5/single": 101,
+    "M6/multiple": 34,
+    "M6/single": 76,
+    "M7/multiple": 29,
+    "M7/single": 71
+  },
+  "retained": 1000,
+  "qualityCounts": {
+    "eligible": 500,
+    "learning_only": 458,
+    "hold": 42
+  },
+  "coreCount": 500,
+  "revisedThisRound": 100,
+  "original400Review": {
+    "version": "2026.10.13.3",
+    "date": "2026-10-13",
+    "reviewed": 400,
+    "revised": 118,
+    "retained": 282,
+    "reviewer": "同一助手逐题内容复核；非独立审校",
+    "modules": {
+      "M1": {
+        "reviewed": 20,
+        "revised": 8
+      },
+      "M2": {
+        "reviewed": 22,
+        "revised": 5
+      },
+      "M3": {
+        "reviewed": 106,
+        "revised": 17
+      },
+      "M4": {
+        "reviewed": 137,
+        "revised": 28
+      },
+      "M5": {
+        "reviewed": 16,
+        "revised": 5
+      },
+      "M6": {
+        "reviewed": 50,
+        "revised": 50
+      },
+      "M7": {
+        "reviewed": 49,
+        "revised": 5
+      }
+    },
+    "fieldCounts": {
+      "stem": 46,
+      "explanation": 95,
+      "options": 31,
+      "distractors": 31,
+      "topic": 1
+    },
+    "scope": "全部400题的题干、选项、答案、解析及干扰项理由逐题检查；重点官方页面重新读取，不等于96个历史来源全部再次联网验证。"
+  }
+}
