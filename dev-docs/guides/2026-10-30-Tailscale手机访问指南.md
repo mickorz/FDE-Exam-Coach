@@ -76,6 +76,7 @@ launchctl load ~/Library/LaunchAgents/com.fde-coach.plist
 | 手机打不开地址 | 电脑是否开机且服务在跑（`curl 127.0.0.1:8765/api/health`）；`tailscale serve status` 是否有输出；手机 Tailscale VPN 是否开启 |
 | 证书错误 | 管理后台 HTTPS 证书未开启；或手机 Tailscale 版本过旧 |
 | 页面提示"暂时无法加载" | 服务未启动或 serve 失效，重新执行启动脚本；提示文案中已包含检查步骤 |
+| 手机端整站 403 / 保存报错 | 旧版 server.py 会拦截 `.ts.net` Host；2026-10-31 起已自动放行 `*.ts.net`（tests/test_tsnethost.py 锁定），如仍出现请升级到含 `host_allowed()` 的版本；非 Tailscale 代理（如 Caddy 自有域名）仍需 `--allowed-host` |
 | Mac 重启后服务没了 | 未安装 launchd plist，见上文"开机自启" |
 | 两端进度不同步 | 刷新页面；若侧栏显示保存错误，先在数据备份页导出，再按提示合并 |
 

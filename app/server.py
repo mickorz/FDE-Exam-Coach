@@ -24,6 +24,7 @@ AI = None         # AIStore 单例，随 data-dir 初始化
 
 # 允许的 Host 白名单：默认仅本机；部署到服务器经反向代理访问时用 --allowed-host 放行域名
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+TS_NET_SUFFIX = '.ts.net'  # Tailscale 为本 Tailnet 签发的域名后缀；无法被第三方 DNS 伪造，serve 转发保留原始 Host 时放行（FR-011-01）
 
 
 def configure_allowed_hosts(spec=''):
@@ -33,14 +34,24 @@ def configure_allowed_hosts(spec=''):
     ALLOWED_HOSTS = list(dict.fromkeys(['127.0.0.1', 'localhost'] + extra))
 
 
+def host_allowed(host_header):
+    """Host 白名单：本机回环、--allowed-host 显式放行域名、以及 *.ts.net（Tailscale 签发，须为非空子域）。
+    写操作另有 origin_allowed 同源校验，故放行 ts.net 不引入跨站写入风险。"""
+    host = (host_header or '').split(':')[0].strip().lower()
+    return host in ALLOWED_HOSTS or (host.endswith(TS_NET_SUFFIX) and len(host) > len(TS_NET_SUFFIX))
+
+
 def origin_allowed(origin, host_header):
-    """写操作同源校验：Host 必须在白名单内；Origin 若提供须与 Host 同源（http/https 均可，兼容反向代理 TLS）。"""
-    host = host_header.split(':')[0].lower()
-    if host not in ALLOWED_HOSTS:
+    """写操作同源校验：Host 必须在白名单内；Origin 若提供须与 Host 同源（http/https 均可，兼容反向代理 TLS；
+    端口差异容忍——serve 转发可能带 :443 而浏览器 Origin 省略默认端口）。"""
+    if not host_allowed(host_header):
         return False
     if not origin:
         return True
-    return origin.rstrip('/') in ('http://' + host_header, 'https://' + host_header)
+    o = origin.strip().rstrip('/').lower()
+    host = host_header.strip().lower()
+    host_no_port = host.split(':')[0]
+    return o in ('http://' + host, 'https://' + host, 'http://' + host_no_port, 'https://' + host_no_port)
 
 
 def bank():
@@ -86,7 +97,7 @@ def save_state(state):
 
 class Handler(BaseHTTPRequestHandler):
     def valid_host(self):
-        return self.headers.get('Host','').split(':')[0].lower() in ALLOWED_HOSTS
+        return host_allowed(self.headers.get('Host', ''))
 
     def reply(self, code, content, mime='application/json; charset=utf-8'):
         body = content if isinstance(content, bytes) else json.dumps(content, ensure_ascii=False).encode()
