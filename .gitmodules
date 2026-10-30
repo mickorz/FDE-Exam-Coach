@@ -1,0 +1,6 @@
+[submodule "thirdparties/FDE_Learning"]
+	path = thirdparties/FDE_Learning
+	url = https://github.com/mickorz/FDE_Learning
+[submodule "thirdparties/wrong-notebook"]
+	path = thirdparties/wrong-notebook
+	url = https://github.com/margrop/wrong-notebook
