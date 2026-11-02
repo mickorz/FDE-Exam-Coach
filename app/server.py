@@ -96,6 +96,8 @@ def save_state(state):
         if os.path.exists(name): os.unlink(name)
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'   # keep-alive：DERP 中继 RTT 高速场景下免去每请求重建连接（手机冷启动曾是十几个串行建连）
+    disable_nagle_algorithm = True  # 小响应交互式刷题场景降低延迟
     def valid_host(self):
         return host_allowed(self.headers.get('Host', ''))
 

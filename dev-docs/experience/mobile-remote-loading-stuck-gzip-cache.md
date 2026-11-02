@@ -39,6 +39,16 @@
 
 新增 `app/tests/test_http_cache.py` 5 项锁定（gzip 还原/无 gzip 回落/304/state 保持 no-store/大 JS 压缩），全量回归 npm 42/42 + python 30/30 绿。
 
+## 第二轮优化（同日：仍需 15 秒 → 连接复用）
+
+用户反馈 gzip 后仍约 15 秒。诊断：`tailscale ping iphone-15-pro-max` 显示 `via DERP(tok)`、`direct connection not established`——手机经东京 DERP 中继（RTT 337-1034ms，DERP 吞吐受限）；叠加服务端默认 HTTP/1.0 无 keep-alive，首屏 9 个资源每请求都重走一遍隧道建连。
+
+修复（app/server.py Handler 类两行）：
+- `protocol_version = 'HTTP/1.1'`：keep-alive 连接复用；tailscale serve 对手机侧还会升级 HTTP/2 多路复用，实测首屏 9 资源单连接总传输 690KB，小资源 1-3ms；
+- `disable_nagle_algorithm = True`：交互式刷题降延迟。
+
+全量回归绿（py 30 + node 45）。注：DERP 中继本身无法从服务端消除，若两端 NAT 打不通 UDP 直连只能靠减小传输量缓解；同一 Wi-Fi 下 Tailscale 通常走局域网直连，速度会快得多。
+
 ## 预防 / 注意事项
 
 - **标准库 http.server 上线远程访问，先补 gzip 和条件请求**——本地回环 4MB 无感，走真实网络就是灾难；这属于"本地测试通过掩盖远程问题"的典型。
