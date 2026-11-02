@@ -24,6 +24,7 @@
    | 任务计划 | `dev-docs/planning/` | 任务拆解、进度计划、里程碑 |
    | 执行进度 | `dev-docs/progress/` | 阶段性进度总结、里程碑状态 |
    | 执行报告 | `dev-docs/progress-result/` | 阶段完整执行报告、验收结果（区别于 progress 的持续进度表） |
+   | 缺陷记录 | `dev-docs/bugs/` | 用户/开发过程发现的 bug 报告与处置结论（一篇一 bug，修复后回写结论） |
    | 使用指南 | `dev-docs/guides/` | 操作手册、环境搭建、工作流说明 |
    | 经验沉淀 | `dev-docs/experience/` | 踩坑记录、问题解决方案、经验教训 |
    | 项目目标 | `dev-docs/goal/` | 产品愿景、阶段目标、开发原则 |

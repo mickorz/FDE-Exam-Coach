@@ -82,6 +82,13 @@ export function todayPlan(questions, state, {now=Date.now(), dailyNew}={}) {
   const due=active.filter(q=>{const r=currentRecord(state,q);return r.due&&r.due<=now;});
   const core=active.filter(q=>q.quality?.examUse==='eligible');
   const coreLearned=core.filter(q=>currentRecord(state,q).attempts.length>0).length;
+  // FR-012 修复：doneToday=当日首次作答（当日新学）的题数；freshIds 只装“今日剩余额度”。
+  // 此前 freshIds 永远装满 quota 道未做题，做完几题刷新后仍显示 50 道，用户会误以为进度未保存。
+  const dayStart=new Date(now);dayStart.setHours(0,0,0,0);
+  const activeIds=new Set(active.map(q=>q.id));
+  const doneToday=Object.entries(state.records||{}).filter(([id,r])=>activeIds.has(id)&&r.attempts?.length&&r.attempts[0].at>=dayStart.getTime()).length;
+  const freshIds=ordered.slice(0,Math.max(0,quota-doneToday)).map(q=>q.id);
+  const freshRemaining=Math.max(0,fresh.length-freshIds.length);
   // 薄弱模块：最近 100 次作答（不限版本）中作答数达 5 次的模块按正确率升序
   const byId=new Map(active.map(q=>[q.id,q]));
   const flat=[];
@@ -91,7 +98,7 @@ export function todayPlan(questions, state, {now=Date.now(), dailyNew}={}) {
   const per=new Map();
   for(const a of recent){const q=byId.get(a.id);if(!q)continue;const item=per.get(q.module)||{total:0,correct:0};item.total++;if(a.correct)item.correct++;per.set(q.module,item);}
   const weakModules=[...per.entries()].filter(([,v])=>v.total>=5).map(([module,v])=>({module,...v,accuracy:v.correct/v.total})).sort((a,b)=>a.accuracy-b.accuracy).slice(0,2);
-  return {now,dailyNew:quota,dueCount:due.length,dueIds:due.map(q=>q.id),freshIds:ordered.slice(0,quota).map(q=>q.id),freshRemaining:Math.max(0,fresh.length-quota),coreTotal:core.length,coreLearned,weakModules};
+  return {now,dailyNew:quota,doneToday,dueCount:due.length,dueIds:due.map(q=>q.id),freshIds,freshRemaining,coreTotal:core.length,coreLearned,weakModules};
 }
 export function shuffle(array, random=Math.random) {
   const result = [...array]; for(let i=result.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[result[i],result[j]]=[result[j],result[i]];}return result;

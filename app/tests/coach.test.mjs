@@ -115,16 +115,21 @@ test('考试结果按模块统计并按正确率升序，缺题计入缺失',()=
 test('今日任务：新题限量且核心优先，到期复习计数，核心完成率正确',()=>{
   const s=fresh();
   const bank=[q,q2,q3];
-  recordAnswer(s,q2,['A'],1000,'chapter');
-  const plan=todayPlan(bank,s,{now:2000,dailyNew:30});
+  const now=2000,dayStart=new Date(now);dayStart.setHours(0,0,0,0);
+  recordAnswer(s,q2,['A'],dayStart.getTime()+500,'chapter'); // 与 now 同属本地“当天”，计入 doneToday
+  const plan=todayPlan(bank,s,{now,dailyNew:30});
   assert.equal(plan.coreTotal,2);
   assert.equal(plan.coreLearned,1);
   assert.equal(plan.dueCount,0); // q2 刚答对，下次复习在 1 天后，未到期
   assert.deepEqual(plan.freshIds,[q.id,q3.id]);
+  // FR-012 后：当日已做计入 doneToday，额度=quota-doneToday
+  assert.equal(plan.doneToday,1);
+  const plan2=todayPlan(bank,s,{now,dailyNew:1});
+  assert.deepEqual(plan2.freshIds,[],'当日额度已满，不再推新题');
   // 学习题排在学习题之后：截断时核心题优先保留
-  const plan2=todayPlan(bank,s,{now:2000,dailyNew:1});
-  assert.deepEqual(plan2.freshIds,[q.id]);
-  assert.equal(plan2.freshRemaining,1);
+  const plan3=todayPlan(bank,s,{now,dailyNew:2});
+  assert.deepEqual(plan3.freshIds,[q.id]);
+  assert.equal(plan3.freshRemaining,1);
 });
 
 test('今日任务：薄弱模块按最近作答正确率识别，样本不足不评估',()=>{

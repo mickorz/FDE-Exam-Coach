@@ -2,7 +2,7 @@ import {todayPlan,DEFAULT_EXAM_DATE} from './core.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // 今日任务首页（FR-006）：所有推荐均由真实作答记录推导；未完成任务不做任何自动标记
-export function renderToday(target,{questions,state,manifest,MODULES,actions,save,render}){
+export function renderToday(target,{questions,state,manifest,MODULES,actions,save,render,resume=null}){
  const now=Date.now();
  const s=state();
  const settings=s.settings||{};
@@ -17,12 +17,13 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
  target.innerHTML=`
 <section class="reading-block today-hero"><h2>${daysLeft!==null?`距考试还有 <strong class="countdown">${daysLeft}</strong> 天`:'尚未设置考试日期'}</h2><p class="muted">目标日期 ${esc(targetDate)} · 题库 ${esc(manifest.version)} · 可在“学习进度”页修改目标日期</p>
  <div class="metrics today-metrics">
-  <div><strong>${plan.freshIds.length}<small> / ${dailyNew} 道</small></strong><span>今日新题目标${plan.freshRemaining?`（全部未做 ${plan.freshIds.length+plan.freshRemaining} 题）`:''}</span></div>
+  <div><strong>${plan.doneToday}<small> / ${dailyNew} 道</small></strong><span>今日新题目标${plan.freshIds.length?`（还剩 ${plan.freshIds.length} 道）`:' · 今日已完成'}</span></div>
   <div><strong>${plan.dueCount}</strong><span>到期复习题</span></div>
   <div><strong>${pct}%<small> · ${plan.coreLearned}/${plan.coreTotal}</small></strong><span>核心题库完成率</span></div>
  </div>
  <div class="today-actions">
   <button id="today-new" class="primary">开始今日新题（${plan.freshIds.length} 道）</button>
+  ${resume&&resume.index>0?`<button id="today-resume">继续今日练习（第 ${resume.index+1}/${resume.total} 题）</button>`:''}
   <button id="today-review">复习到期题（${plan.dueCount} 道）</button>
   ${last?`<button id="today-last">最近模拟：${esc(String(last.points))} 分 / 100 · 查看复盘</button>`:`<button id="today-exam">还没有模拟成绩，去考一场</button>`}
  </div>
@@ -32,6 +33,7 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
 ${plan.weakModules.length?`<section class="reading-block"><h2>近期薄弱模块</h2>${plan.weakModules.map(m=>`<div class="progress-row"><div><b>${esc(modName(m.module))}</b><span>最近正确率 ${Math.round(m.accuracy*100)}%（${m.correct}/${m.total} 次作答）</span></div><progress value="${m.correct}" max="${m.total}"></progress></div><button class="weak-drill" data-weak-module="${esc(m.module)}">专项练习 ${esc(modName(m.module))}</button>`).join('')}</section>`:`<section class="reading-block"><h2>近期薄弱模块</h2><p class="muted">作答样本还不足（每个模块至少 5 次作答才参与评估），先完成今日新题。</p></section>`}
 <section class="reading-block"><h2>今日安排建议</h2><p>${plan.dueCount?'先清到期复习，再做新题；':'暂无到期复习，直接推进新题；'}${plan.weakModules.length?`新题完成后到「${esc(modName(plan.weakModules[0].module))}」做专项训练。`:'完成后再考虑一场 15 题短练检验状态。'}</p><p class="muted">间隔复习规则：答对后 1、3、7、14、30 天再回忆；答错 10 分钟后再试；临近考试自动收紧，最晚考前 2 天。这是本软件的学习策略，不是官方考试规则。</p></section>`;
  target.querySelector('#today-new').onclick=()=>actions.startNew(plan.freshIds);
+ const resumeBtn=target.querySelector('#today-resume');if(resumeBtn)resumeBtn.onclick=()=>actions.resumeToday?.();
  target.querySelector('#today-review').onclick=()=>actions.startReview();
  target.querySelector(last?'#today-last':'#today-exam').onclick=()=>last?actions.openLastExam():actions.startExam();
  target.querySelector('#today-daily').onchange=e=>{

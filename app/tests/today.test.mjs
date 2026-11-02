@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {renderToday} from '../src/today.js';
-import {recordAnswer} from '../src/core.js';
+import {recordAnswer,todayPlan} from '../src/core.js';
 
 // 最小 DOM 桩：只验证 renderToday 模板可执行、绑定不抛错、内容齐全
 function stubElement(){
@@ -31,4 +31,45 @@ test('今日任务页渲染：倒计时、任务、薄弱模块、最近成绩�
   for(const part of ['距考试还有','今日新题目标','到期复习题','核心题库完成率','近期薄弱模块','最近模拟：73 分','每日新题目标','不会被自动标记为完成','value="50"'])assert(target.innerHTML.includes(part),`缺少内容：${part}`);
   assert(!target.innerHTML.includes('undefined'),'页面出现 undefined');
   assert(!target.innerHTML.includes('NaN'),'页面出现 NaN');
+});
+
+test('todayPlan：当日首做计数进 doneToday，freshIds 只装剩余额度（修复：刷新后不再看似从头开始）',()=>{
+  const s=state();
+  const now=Date.now();
+  recordAnswer(s,questions[0],['B'],now-60000); // 今天首做 M1 → doneToday=1
+  recordAnswer(s,questions[1],['A'],now-30000);  // 今天首做 M2 → doneToday=2
+  const plan=todayPlan(questions,s,{now,dailyNew:2});
+  assert.equal(plan.doneToday,2);
+  assert.equal(plan.freshIds.length,0,'已达每日目标，剩余额度应为 0');
+  const plan2=todayPlan(questions,s,{now,dailyNew:3});
+  assert.equal(plan2.doneToday,2);
+  assert.equal(plan2.freshIds.length,1,'quota 3 - 今日已做 2 → 剩 1 道');
+  assert.deepEqual(plan2.freshIds,['FDE-M3-001']);
+  // 昨日作答不计入 doneToday
+  const yesterday=new Date(now-86400000);yesterday.setHours(12,0,0,0);
+  const s2=state();recordAnswer(s2,questions[0],['B'],yesterday.getTime());
+  assert.equal(todayPlan(questions,s2,{now,dailyNew:2}).doneToday,0);
+});
+
+test('今日页展示当日进度与"继续今日练习"按钮（修复 bug-没有保存之前的记录）',()=>{
+  const s=state();
+  recordAnswer(s,questions[0],['B'],Date.now()-60000);
+  const target=stubElement();
+  renderToday(target,{
+    questions,state:()=>s,manifest:{version:'x'},
+    MODULES:[['M1','AI 基础',10],['M2','ADP 定位',7],['M3','核心功能',22]],
+    actions:{startNew:()=>{},startReview:()=>{},startModule:()=>{},startExam:()=>{},openLastExam:()=>{},resumeToday:()=>{}},
+    save:()=>{},render:()=>{},
+  });
+  assert(target.innerHTML.includes('1<small> / 50 道'),'应显示今日已完成 1/50');
+  assert(target.innerHTML.includes('还剩'),'应显示剩余额度');
+  assert(!target.innerHTML.includes('继续今日练习'),'无会话时不渲染继续按钮');
+  const target2=stubElement();
+  renderToday(target2,{
+    questions,state:()=>s,manifest:{version:'x'},
+    MODULES:[['M1','AI 基础',10],['M2','ADP 定位',7],['M3','核心功能',22]],
+    actions:{startNew:()=>{},startReview:()=>{},startModule:()=>{},startExam:()=>{},openLastExam:()=>{},resumeToday:()=>{}},
+    save:()=>{},render:()=>{},resume:{index:2,total:10},
+  });
+  assert(target2.innerHTML.includes('继续今日练习（第 3/10 题）'),'应渲染继续按钮');
 });

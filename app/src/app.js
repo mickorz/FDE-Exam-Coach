@@ -6,6 +6,11 @@ const esc = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'
 const $ = selector => document.querySelector(selector);
 const store=new Store();
 let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[];
+// FR-012 修复：今日练习会话存 sessionStorage，刷新后首页可"继续今日练习（第 N 题）"，不再看似从头开始
+const TODAY_KEY='fde-today-session-v1';
+const dayKey=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+function saveTodaySession(){try{if(pool==='today'&&todayNewIds.length)sessionStorage.setItem(TODAY_KEY,JSON.stringify({ids:todayNewIds,index,day:dayKey()}));}catch{}}
+function todayResume(){try{const s=JSON.parse(sessionStorage.getItem(TODAY_KEY)||'null');return s&&s.day===dayKey()&&Array.isArray(s.ids)&&s.ids.length&&s.index>0&&s.index<s.ids.length?{index:s.index,total:s.ids.length,session:s}:null;}catch{return null}}
 const nav=[['today','今日任务'],['study','章节学习'],['review','间隔复习'],['wrong','错题本'],['favorites','收藏'],['exam','模拟考试'],['progress','学习进度'],['backup','数据备份'],['rounds','题库版本'],['settings','设置']];
 const subtitle={today:'根据真实作答记录安排今天的学习。',settings:'考试日期与每日目标，影响倒计时与复习安排。',rounds:'原创题库组成、内容复核与专项练习。',study:'按官方考试大纲分章节学习，逐步掌握核心知识点。',review:'到期再回忆一次，让知识留得更久。',wrong:'从答错过的题目开始，修正理解。',favorites:'把值得再读的题目留在这里。',exam:'25 分钟短练 / 90 分钟完整练习',progress:'看见覆盖情况，安排下一次学习。',backup:'题库和学习记录保存在本机，不需要账号。'};
 const icon = n => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${['M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3z M12 6v15','M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9 M12 7v5l3 2','M7 5H4v16h16V5h-3 M8 3h8v4H8z M8 12h8 M8 16h5','m12 3 3 6 6 1-4.5 4.5 1 6.5-5.5-3-5.5 3 1-6.5L3 10l6-1z','M5 3h14v18H5z M8 8h8 M8 12h8 M8 16h5','M4 21V11h4v10 M10 21V6h4v15 M16 21V3h4v18','M4 5h16v15H4z M8 5V2h8v3 M8 10h8 M8 15h8'][n%7]}"/></svg>`;
@@ -61,7 +66,7 @@ function render(){
  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
  document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{if(state().activeExam){toast('模拟考试进行中，请先交卷再进入章节学习');return;}module=b.dataset.module;page='study';index=0;resetQuestion();render();});
  if(['study','review','wrong','favorites'].includes(page))renderStudy();
- if(page==='today')renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render()});
+ if(page==='today')renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render(),resume:todayResume()});
  if(page==='rounds')renderRounds($('#content'),rounds,{reviewOriginal:()=>{pool='original-revised';module='all';query='';page='study';index=0;resetQuestion();render();},study:(id)=>{pool='all';module='all';query=id;page='study';index=0;resetQuestion();render();},practice:()=>{page='exam';render();},focus:()=>{pool='weak';module='all';query='';page='study';index=0;resetQuestion();render();}});
  if(page==='exam')renderExam();if(page==='progress')renderProgress();if(page==='backup')renderBackup();if(page==='settings')renderSettings();
  if(store.pending)store.onStatus('正在保存…');
@@ -92,7 +97,7 @@ function renderQuestion(q,position,total,exam){
  });
  if(!exam)$('#submit').onclick=()=>{if(!answers.length){toast('请先选择答案');return;}recordAnswer(state(),q,answers,Date.now(),studyMode());submitted=true;save();renderQuestion(q,position,total,false);};
  $('#favorite').onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.favorite=!item.favorite;state().records[q.id]=item;save();$('#favorite').textContent=item.favorite?'已收藏':'收藏';$('#favorite').setAttribute('aria-pressed',String(item.favorite));};
- const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;renderStudyQuestion();}$('#stem')?.focus();};
+ const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;saveTodaySession();renderStudyQuestion();}$('#stem')?.focus();};
  $('#prev').onclick=()=>move(-1);$('#next').onclick=()=>move(1);
  document.querySelectorAll('.error-type').forEach(b=>b.onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.errorType=b.dataset.errorType;state().records[q.id]=item;save();renderQuestion(q,position,total,false);});
  const aiBtn=$('#ai-ask');if(aiBtn)aiBtn.onclick=()=>askAI(q,answers);
@@ -177,7 +182,8 @@ async function askAI(q,userAnswers){
 }
 // 今日任务页动作（FR-006）
 const todayActions={
- startNew(ids){if(!ids.length){toast('今日新题目标已完成，可在章节学习选择未做题继续');return;}todayNewIds=ids;randomIds=null;pool='today';module='all';query='';page='study';index=0;resetQuestion();render();},
+ startNew(ids){if(!ids.length){toast('今日新题目标已完成，可在章节学习选择未做题继续');return;}todayNewIds=ids;randomIds=null;pool='today';module='all';query='';page='study';index=0;saveTodaySession();resetQuestion();render();},
+ resumeToday(){const r=todayResume();if(!r)return;todayNewIds=r.session.ids;randomIds=null;pool='today';module='all';query='';page='study';index=r.index;resetQuestion();render();},
  startReview(){page='review';index=0;resetQuestion();render();},
  startModule(id){module=id;pool='core';query='';page='study';index=0;resetQuestion();render();},
  startExam(){page='exam';index=0;resetQuestion();render();},
