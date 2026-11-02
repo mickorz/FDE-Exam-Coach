@@ -53,6 +53,10 @@ class ExtractJsonTests(unittest.TestCase):
         self.assertEqual(client.extract_json('{"a":1}'), {"a": 1})
         self.assertEqual(client.extract_json('```json\n{"a":1}\n```'), {"a": 1})
         self.assertEqual(client.extract_json('好的，以下是结果：{"a":{"b":2}} 请参考'), {"a": {"b": 2}})
+        # glm-5.3 实测：JSON 后追加 </br>纯文本复述</br> + 重复 JSON，应只取第一个完整对象
+        dup = '{"a":1}</br>以纯文本形式输出以上内容如下：</br>{"a":1}'
+        self.assertEqual(client.extract_json(dup), {"a": 1})
+        self.assertEqual(client.extract_json('{"a":{"b":2}} 追加说明 {"x":9}'), {"a": {"b": 2}})
         for bad in ("完全没有大括号", '{"a":', ""):
             with self.assertRaises(ValueError):
                 client.extract_json(bad)

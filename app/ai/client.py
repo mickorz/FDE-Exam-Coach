@@ -69,7 +69,12 @@ def chat(prompt: str, config: dict) -> str:
 
 
 def extract_json(text: str) -> dict:
-    """从容错角度提取模型输出中的 JSON 对象（借鉴 wrong-notebook extractJsonObject）。"""
+    """从容错角度提取模型输出中的 JSON 对象（借鉴 wrong-notebook extractJsonObject）。
+
+    用 raw_decode 只取第一个完整对象：模型可能在 JSON 后追加纯文本
+    复述（如实测 glm-5.3 会追加 “</br>以纯文本形式输出…</br>” + 重复 JSON），
+    不能用 rfind("}") 切到最后一个花括号。
+    """
     if not isinstance(text, str):
         raise ValueError("模型输出不是文本")
     cleaned = text.strip()
@@ -81,11 +86,10 @@ def extract_json(text: str) -> dict:
                 cleaned = candidate[4:].strip()
                 break
     start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start < 0 or end <= start:
+    if start < 0:
         raise ValueError("模型输出中未找到 JSON 对象")
     try:
-        data = json.loads(cleaned[start:end + 1])
+        data, _ = json.JSONDecoder().raw_decode(cleaned[start:])
     except json.JSONDecodeError as exc:
         raise ValueError(f"JSON 解析失败：{exc}") from exc
     if not isinstance(data, dict):
