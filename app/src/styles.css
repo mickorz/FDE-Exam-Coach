@@ -62,3 +62,4 @@ button,label.option,.file-button{touch-action:manipulation}
 .term-manual{display:flex;gap:8px;margin:14px 0 4px}
 .term-manual input{flex:1;border:1px solid var(--line);border-radius:7px;padding:11px 12px;font-size:14px;min-width:0}
 .term-manual .primary{min-width:82px}
+.ui-build{position:fixed;right:10px;bottom:6px;font-size:10px;color:#9aa6b8;z-index:5;pointer-events:none}

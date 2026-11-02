@@ -87,6 +87,8 @@ function renderStudyQuestion(){
  if(!selectedList.length){$('#question').innerHTML=`<div class="empty"><h2>${page==='review'?'当前没有到期题目':page==='wrong'?'当前没有待纠正错题':'没有匹配的题目'}</h2><p>${questions.length?'可以切换章节或清空搜索。':'题库正在审校，只有通过独立审校的题目才会在此发布。'}</p>${page==='review'?'<p>复习安排：答对后 1、3、7、14、30 天；答错 10 分钟后再试。</p>':''}</div>`;return;}
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
+// UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
+const UI_BUILD='1102c';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -182,6 +184,7 @@ async function askAI(q,userAnswers){
  }catch(error){out.innerHTML='';toast('AI 讲解不可用：'+error.message+'（不影响继续刷题）');}
  finally{btn.disabled=false;}
 }
+const uiBuild=document.createElement('div');uiBuild.className='ui-build';uiBuild.textContent='构建 '+UI_BUILD;document.body.appendChild(uiBuild);
 // 划词术语解释（关键词系统 P0）：选中题目文字 → 底部气泡 → 抽屉展示，不离开当前题、不影响作答进度
 const termChip=document.createElement('button');termChip.id='term-chip';termChip.type='button';termChip.className='term-chip';termChip.hidden=true;document.body.appendChild(termChip);
 const termSheet=document.createElement('div');termSheet.id='term-sheet';termSheet.className='term-sheet';termSheet.hidden=true;termSheet.innerHTML='<div class="term-backdrop"></div><div class="term-panel" role="dialog" aria-modal="true" aria-labelledby="term-title"><header><b id="term-title"></b><button id="term-close" type="button" aria-label="关闭">✕</button></header><div id="term-body"></div></div>';document.body.appendChild(termSheet);
