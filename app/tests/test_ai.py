@@ -82,6 +82,15 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(store.usage_today(NOW), 1)
             self.assertEqual(store.usage_today("2026-10-31T08:00:00"), 1)
 
+    def test_term_and_explain_usage_are_independent(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = AIStore(Path(d))
+            store.bump_usage(NOW)              # 讲解 +1
+            store.bump_usage(NOW, "term")      # 术语 +1
+            store.bump_usage(NOW, "term")
+            self.assertEqual(store.usage_today(NOW, "explain"), 1)
+            self.assertEqual(store.usage_today(NOW, "term"), 2)
+
 
 class ExplainTests(unittest.TestCase):
     def setUp(self):
@@ -135,6 +144,69 @@ class ExplainTests(unittest.TestCase):
         # 换一天恢复
         record = service.explain(QUESTION, ["A"], CONFIG, self.store, lambda p, c: GOOD_OUTPUT, "2026-10-31T09:00:00")
         self.assertFalse(record["cached"])
+
+
+class TermPromptTests(unittest.TestCase):
+    def test_term_prompt_has_context_but_never_leaks_answer(self):
+        text = prompts.build_term_prompt(QUESTION, "精调")
+        for part in ("精调", QUESTION["stem"], "选项", "不要对题目本身作答"):
+            self.assertIn(part, text)
+        # 从提示词层面杜绝泄题：不携带标准答案/官方解析/干扰项
+        for forbidden in ("标准答案", QUESTION["explanation"], "distractors"):
+            self.assertNotIn(forbidden, text)
+        self.assertEqual(prompts.TERM_PROMPT_VERSION, "v1")
+
+
+TERM_OUTPUT = json.dumps({
+    "one_liner": "用标注样本继续训练模型，更新权重。",
+    "analogy": "像给已毕业的员工做岗位专项培训。",
+    "use_case": "企业抽取合同字段不准时，用标注样本精调提升效果。",
+    "confusable": ["精调 vs 部署：训练 vs 上线"],
+    "exam_tip": "精调改权重，部署不改。",
+}, ensure_ascii=False)
+
+
+class ExplainTermTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = AIStore(Path(self._tmp.name))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_success_and_cache_hit(self):
+        calls = []
+        record = service.explain_term(QUESTION, "精调", CONFIG, self.store, lambda p, c: (calls.append(p) or TERM_OUTPUT), NOW)
+        self.assertFalse(record["cached"])
+        self.assertEqual(record["kind"], "term")
+        self.assertEqual(record["term"], "精调")
+        self.assertEqual(record["explanation"]["one_liner"], "用标注样本继续训练模型，更新权重。")
+        self.assertEqual(len(calls), 1)
+        # 缓存命中：不再调上游；同一题同一术语稳定复用
+        again = service.explain_term(QUESTION, "精调", CONFIG, self.store, fail_chat, NOW)
+        self.assertTrue(again["cached"])
+        # 不同术语不共享缓存
+        other = service.explain_term(QUESTION, "部署", CONFIG, self.store, lambda p, c: TERM_OUTPUT, NOW)
+        self.assertFalse(other["cached"])
+
+    def test_missing_term_field_raises_parse_error(self):
+        bad = json.dumps({"one_liner": "只有一句话"}, ensure_ascii=False)
+        with self.assertRaises(service.AIParseError):
+            service.explain_term(QUESTION, "精调", CONFIG, self.store, lambda p, c: bad, NOW)
+
+    def test_term_quota_independent_of_explain_quota(self):
+        # 讲解额度耗尽不影响术语
+        for _ in range(service.DAILY_LIMIT):
+            self.store.bump_usage(NOW)
+        record = service.explain_term(QUESTION, "精调", CONFIG, self.store, lambda p, c: TERM_OUTPUT, NOW)
+        self.assertFalse(record["cached"])
+        # 术语额度耗尽才拦截；缓存命中不受影响
+        for _ in range(service.TERM_DAILY_LIMIT - 1):
+            self.store.bump_usage(NOW, "term")
+        with self.assertRaises(service.AIQuotaError):
+            service.explain_term(QUESTION, "部署", CONFIG, self.store, fail_chat, NOW)
+        cached = service.explain_term(QUESTION, "精调", CONFIG, self.store, fail_chat, NOW)
+        self.assertTrue(cached["cached"])
 
 
 if __name__ == "__main__":

@@ -144,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.valid_host(): return self.reply(403, {'error':'只允许本机访问'})
         path = urllib.parse.urlparse(self.path).path
-        if path != '/api/ai/explain': return self.reply(404, {'error':'未找到'})
+        if path not in ('/api/ai/explain', '/api/ai/term'): return self.reply(404, {'error':'未找到'})
         origin = self.headers.get('Origin')
         if not origin_allowed(origin, self.headers.get('Host','')):
             return self.reply(403, {'error':'拒绝跨站写入'})
@@ -152,13 +152,23 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length','0'))
             if length <= 0 or length > 65536: raise ValueError('请求体过大或为空')
             payload = json.loads(self.rfile.read(length))
-            question_id = payload.get('questionId'); answers = payload.get('answers')
-            if not isinstance(question_id, str) or not isinstance(answers, list) or not answers or not all(isinstance(a, str) and len(a) == 1 and a.isalpha() and a.isupper() for a in answers):
+            question_id = payload.get('questionId')
+            if not isinstance(question_id, str) or not question_id or len(question_id) > 64:
                 raise ValueError('请求参数无效')
             question = bank().get(question_id)
             if not question: return self.reply(404, {'error':'题库中不存在该题目'})
             from ai.client import load_config
-            record = ai_service.explain(question, answers, load_config(STATE_PATH.parent), AI)
+            config = load_config(STATE_PATH.parent)
+            if path == '/api/ai/term':
+                term = payload.get('term')
+                if not isinstance(term, str) or not 1 <= len(term.strip()) <= 40:
+                    raise ValueError('请求参数无效')
+                record = ai_service.explain_term(question, term.strip(), config, AI)
+            else:
+                answers = payload.get('answers')
+                if not isinstance(answers, list) or not answers or not all(isinstance(a, str) and len(a) == 1 and a.isalpha() and a.isupper() for a in answers):
+                    raise ValueError('请求参数无效')
+                record = ai_service.explain(question, answers, config, AI)
             return self.reply(200, record)
         except ai_service.AIError as exc:
             return self.reply(exc.code, {'error': str(exc)})

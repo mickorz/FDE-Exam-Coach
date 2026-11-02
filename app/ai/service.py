@@ -4,7 +4,7 @@ import datetime
 
 from . import client, prompts
 from .client import AIUpstreamError  # noqa: F401 重新导出，便于 server 统一捕获
-from .store import DAILY_LIMIT
+from .store import DAILY_LIMIT, TERM_DAILY_LIMIT
 
 
 class AIError(Exception):
@@ -70,4 +70,50 @@ def explain(question: dict, answers: list, config: dict, store, chat_fn=client.c
     }
     store.put(key, record)
     store.bump_usage(now)
+    return {**record, "cached": False}
+
+
+def explain_term(question: dict, term: str, config: dict, store, chat_fn=client.chat, now=None):
+    """生成或返回缓存的划词术语解释（关键词系统 P0）。
+
+    与错题讲解共用存储与上游，但缓存键、每日限额均独立；返回记录含 cached 标记。
+    """
+    model = config.get("model") or client.DEFAULT_MODEL
+    content_hash = question.get("review", {}).get("contentHash") or question.get("version") or "unknown"
+    key = store.cache_key(question["id"], content_hash, ["term:" + term], model)
+
+    hit = store.get(key)
+    if hit:
+        return {**hit, "cached": True}
+
+    if not config.get("api_key"):
+        raise AIConfigError("尚未配置 AI 服务：请在 local-data/config.json 填入 api_key/base_url/model，或设置环境变量 FDE_AI_API_KEY")
+    if store.usage_today(now, "term") >= TERM_DAILY_LIMIT:
+        raise AIQuotaError(f"今日术语解释已达上限 {TERM_DAILY_LIMIT} 次，缓存命中的术语不受影响")
+
+    prompt = prompts.build_term_prompt(question, term)
+    raw = chat_fn(prompt, config)
+    try:
+        data = client.extract_json(raw)
+    except ValueError as exc:
+        raise AIParseError(f"AI 输出无法解析：{exc}") from exc
+
+    missing = [field for field in prompts.TERM_REQUIRED_FIELDS if field not in data]
+    if missing:
+        raise AIParseError(f"AI 输出缺少字段：{'、'.join(missing)}")
+
+    created_at = (now if isinstance(now, datetime.datetime) else datetime.datetime.now()).isoformat(timespec="seconds")
+    record = {
+        "kind": "term",
+        "key": key,
+        "question_id": question["id"],
+        "content_hash": content_hash,
+        "term": term,
+        "model": model,
+        "prompt_version": prompts.TERM_PROMPT_VERSION,
+        "created_at": created_at,
+        "explanation": data,
+    }
+    store.put(key, record)
+    store.bump_usage(now, "term")
     return {**record, "cached": False}

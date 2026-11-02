@@ -87,8 +87,9 @@ function renderStudyQuestion(){
  if(!selectedList.length){$('#question').innerHTML=`<div class="empty"><h2>${page==='review'?'当前没有到期题目':page==='wrong'?'当前没有待纠正错题':'没有匹配的题目'}</h2><p>${questions.length?'可以切换章节或清空搜索。':'题库正在审校，只有通过独立审校的题目才会在此发布。'}</p>${page==='review'?'<p>复习安排：答对后 1、3、7、14、30 天；答错 10 分钟后再试。</p>':''}</div>`;return;}
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
+let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
- const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
+ currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
  $('#question').innerHTML=`<section class="question-card" aria-labelledby="stem"><div class="question-meta"><span>${q.type==='single'?'单选':'多选'} · ${esc(q.difficulty)}${ws?` · 错题状态：${ws}`:''}</span><span>${position+1} / ${total}</span></div><p class="topic">${esc(q.topic)} <span>${esc(q.id)}</span></p>${!exam&&q.quality?`<p class="version-note">${q.quality.examUse==='eligible'?'可用于自编模拟练习（难度未校准）':q.quality.examUse==='hold'?'待修订：暂停作答与计分，历史保留':'仅供知识学习：不纳入模拟计分'} · ${submitted||held?esc(q.quality.rationale):'详细审计依据提交后查看。'}</p>`:''}<h2 id="stem" tabindex="-1">${esc(q.stem)}</h2><fieldset><legend class="sr-only">${q.type==='single'?'选择一个答案':'选择所有正确答案'}</legend>${Object.entries(q.options).map(([key,text])=>`<label class="option ${answers.includes(key)?'selected':''} ${locked&&!held&&q.answer.includes(key)?'correct':''} ${locked&&answers.includes(key)&&!q.answer.includes(key)?'incorrect':''}"><input type="${q.type==='single'?'radio':'checkbox'}" name="answer" value="${esc(key)}" ${answers.includes(key)?'checked':''} ${locked?'disabled':''}><b>${esc(key)}</b><span>${esc(text)}</span></label>`).join('')}</fieldset><div class="question-actions">${exam?'':`<button id="submit" class="primary" ${locked?'disabled':''}>${held?'待修订':locked?'已提交':'提交答案'}</button>`}<button id="prev" ${position===0?'disabled':''}>上一题</button><button id="next" ${position===total-1?'disabled':''}>下一题</button><button id="favorite" aria-pressed="${!!r.favorite}">${r.favorite?'已收藏':'收藏'}</button></div><p class="keyboard-hint">A–${Object.keys(q.options).at(-1)} 选择 · ${exam?'自动保存':'Enter 提交'} · → 下一题${q.type==='multiple'?' · 多选须全部选对':''}</p></section>${locked&&!held?explanation(q):''}`;
  document.querySelectorAll('input[name="answer"]').forEach(input=>input.onchange=()=>{
    answers=q.type==='single'?[input.value]:[...document.querySelectorAll('input[name="answer"]:checked')].map(i=>i.value);
@@ -179,6 +180,46 @@ async function askAI(q,userAnswers){
   out.innerHTML=renderAIOutput(data);
  }catch(error){out.innerHTML='';toast('AI 讲解不可用：'+error.message+'（不影响继续刷题）');}
  finally{btn.disabled=false;}
+}
+// 划词术语解释（关键词系统 P0）：选中题目文字 → 底部气泡 → 抽屉展示，不离开当前题、不影响作答进度
+const termChip=document.createElement('button');termChip.id='term-chip';termChip.type='button';termChip.className='term-chip';termChip.hidden=true;document.body.appendChild(termChip);
+const termSheet=document.createElement('div');termSheet.id='term-sheet';termSheet.className='term-sheet';termSheet.hidden=true;termSheet.innerHTML='<div class="term-backdrop"></div><div class="term-panel" role="dialog" aria-modal="true" aria-labelledby="term-title"><header><b id="term-title"></b><button id="term-close" type="button" aria-label="关闭">✕</button></header><div id="term-body"></div></div>';document.body.appendChild(termSheet);
+let termCandidate='',termBusy=false;
+function selectedTerm(){const s=document.getSelection();if(!s||s.isCollapsed)return '';const node=s.anchorNode;if(!node||!$('#question')||!$('#question').contains(node.nodeType===1?node:node.parentNode))return '';return (s.toString()||'').replace(/\s+/g,' ').trim().slice(0,40);}
+function refreshTermChip(){const t=selectedTerm();if(t){termCandidate=t;const label=t.length>10?t.slice(0,10)+'…':t;termChip.textContent='解释「'+label+'」';termChip.hidden=false;}}
+document.addEventListener('selectionchange',()=>setTimeout(refreshTermChip,0));
+document.addEventListener('mouseup',refreshTermChip);
+document.addEventListener('touchend',()=>setTimeout(refreshTermChip,200),{passive:true});
+document.addEventListener('click',e=>{if(!termChip.hidden&&e.target!==termChip&&!termSheet.contains(e.target)&&!selectedTerm()&&!termBusy)termChip.hidden=true;},true);
+termChip.addEventListener('mousedown',e=>e.preventDefault()); // 防止点按钮时清空选区
+termChip.addEventListener('click',()=>{const t=selectedTerm()||termCandidate;if(t)openTerm(t);});
+function closeTerm(){termSheet.hidden=true;termCandidate='';document.getSelection()?.removeAllRanges();termChip.hidden=true;}
+termSheet.querySelector('.term-backdrop').onclick=closeTerm;
+termSheet.querySelector('#term-close').onclick=closeTerm;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!termSheet.hidden)closeTerm();});
+function renderTermOutput(data){
+ const ex=data.explanation||{};
+ const para=(title,value)=>value?`<h4>${title}</h4><p>${esc(String(value))}</p>`:'';
+ const list=(title,value)=>Array.isArray(value)&&value.length?`<h4>${title}</h4><ul>${value.map(i=>`<li>${esc(String(i))}</li>`).join('')}</ul>`:'';
+ return `${data.cached?'<small class="muted">本次结果来自缓存</small>':''}
+  ${para('一句话解释',ex.one_liner)}
+  ${para('通俗类比',ex.analogy)}
+  ${para('使用场景',ex.use_case)}
+  ${list('易混淆概念',ex.confusable)}
+  ${para('考试记忆点',ex.exam_tip)}
+  <small class="muted">AI 辅助说明，仅供参考，请以官方文档为准 · 模型 ${esc(data.model||'')} · 提示词 ${esc(data.prompt_version||'')}</small>`;
+}
+async function openTerm(term){
+ if(!currentQ||termBusy)return;termBusy=true;termChip.hidden=true;
+ termSheet.hidden=false;$('#term-title').textContent=term;
+ $('#term-body').innerHTML='<p class="muted">正在结合本题解释「'+esc(term)+'」，约需十几秒…</p>';
+ try{
+  const res=await fetch('/api/ai/term',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({questionId:currentQ.id,term})});
+  const data=await res.json();
+  if(!res.ok)throw new Error(data.error||'术语解释失败');
+  $('#term-body').innerHTML=renderTermOutput(data);
+ }catch(error){$('#term-body').innerHTML='<p class="ai-conflict">术语解释不可用：'+esc(error.message)+'（不影响继续刷题）</p>';}
+ finally{termBusy=false;termCandidate=term;}
 }
 // 今日任务页动作（FR-006）
 const todayActions={
