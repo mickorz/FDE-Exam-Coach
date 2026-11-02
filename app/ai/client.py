@@ -6,8 +6,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
+DEFAULT_MODEL = "glm-5.3-flash"
 TIMEOUT_SECONDS = 60
 
 
