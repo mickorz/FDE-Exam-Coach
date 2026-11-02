@@ -72,7 +72,9 @@ export function examModuleStats(result, byId=new Map()) {
   return {modules:[...stats.values()].sort((a,b)=>a.correct/a.total-b.correct/b.total),missing};
 }
 // 今日学习任务（FR-006）：全部由真实作答记录推导；未完成任务不做任何自动标记
-export function todayPlan(questions, state, {now=Date.now(), dailyNew=30}={}) {
+export function todayPlan(questions, state, {now=Date.now(), dailyNew}={}) {
+  // 每日目标优先级：显式参数 > settings.dailyNew > 默认 50（FR-012 设置）
+  const quota=Math.max(1,Math.min(200,Number(dailyNew??state?.settings?.dailyNew)||50));
   const active=questions.filter(q=>q.quality?.examUse!=='hold');
   const fresh=active.filter(q=>currentRecord(state,q).attempts.length===0);
   // 新题优先推荐核心可组卷题，其次学习题
@@ -89,7 +91,7 @@ export function todayPlan(questions, state, {now=Date.now(), dailyNew=30}={}) {
   const per=new Map();
   for(const a of recent){const q=byId.get(a.id);if(!q)continue;const item=per.get(q.module)||{total:0,correct:0};item.total++;if(a.correct)item.correct++;per.set(q.module,item);}
   const weakModules=[...per.entries()].filter(([,v])=>v.total>=5).map(([module,v])=>({module,...v,accuracy:v.correct/v.total})).sort((a,b)=>a.accuracy-b.accuracy).slice(0,2);
-  return {now,dailyNew,dueCount:due.length,dueIds:due.map(q=>q.id),freshIds:ordered.slice(0,dailyNew).map(q=>q.id),freshRemaining:Math.max(0,fresh.length-dailyNew),coreTotal:core.length,coreLearned,weakModules};
+  return {now,dailyNew:quota,dueCount:due.length,dueIds:due.map(q=>q.id),freshIds:ordered.slice(0,quota).map(q=>q.id),freshRemaining:Math.max(0,fresh.length-quota),coreTotal:core.length,coreLearned,weakModules};
 }
 export function shuffle(array, random=Math.random) {
   const result = [...array]; for(let i=result.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[result[i],result[j]]=[result[j],result[i]];}return result;

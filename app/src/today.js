@@ -6,7 +6,7 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
  const now=Date.now();
  const s=state();
  const settings=s.settings||{};
- const dailyNew=Math.max(1,Number(settings.dailyNew)||30);
+ const dailyNew=Math.max(1,Number(settings.dailyNew)||50);
  const plan=todayPlan(questions,s,{now,dailyNew});
  const targetDate=settings.targetDate||DEFAULT_EXAM_DATE;
  const targetMs=new Date(targetDate+'T00:00:00').getTime();

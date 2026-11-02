@@ -1,4 +1,4 @@
-import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle} from './core.js';
+import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE} from './core.js';
 import {Store} from './store.js';
 import {renderRounds} from './rounds.js';
 import {renderToday} from './today.js';
@@ -6,8 +6,8 @@ const esc = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'
 const $ = selector => document.querySelector(selector);
 const store=new Store();
 let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[];
-const nav=[['today','今日任务'],['study','章节学习'],['review','间隔复习'],['wrong','错题本'],['favorites','收藏'],['exam','模拟考试'],['progress','学习进度'],['backup','数据备份'],['rounds','题库版本']];
-const subtitle={today:'根据真实作答记录安排今天的学习。',rounds:'原创题库组成、内容复核与专项练习。',study:'按官方考试大纲分章节学习，逐步掌握核心知识点。',review:'到期再回忆一次，让知识留得更久。',wrong:'从答错过的题目开始，修正理解。',favorites:'把值得再读的题目留在这里。',exam:'25 分钟短练 / 90 分钟完整练习',progress:'看见覆盖情况，安排下一次学习。',backup:'题库和学习记录保存在本机，不需要账号。'};
+const nav=[['today','今日任务'],['study','章节学习'],['review','间隔复习'],['wrong','错题本'],['favorites','收藏'],['exam','模拟考试'],['progress','学习进度'],['backup','数据备份'],['rounds','题库版本'],['settings','设置']];
+const subtitle={today:'根据真实作答记录安排今天的学习。',settings:'考试日期与每日目标，影响倒计时与复习安排。',rounds:'原创题库组成、内容复核与专项练习。',study:'按官方考试大纲分章节学习，逐步掌握核心知识点。',review:'到期再回忆一次，让知识留得更久。',wrong:'从答错过的题目开始，修正理解。',favorites:'把值得再读的题目留在这里。',exam:'25 分钟短练 / 90 分钟完整练习',progress:'看见覆盖情况，安排下一次学习。',backup:'题库和学习记录保存在本机，不需要账号。'};
 const icon = n => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${['M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3z M12 6v15','M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9 M12 7v5l3 2','M7 5H4v16h16V5h-3 M8 3h8v4H8z M8 12h8 M8 16h5','m12 3 3 6 6 1-4.5 4.5 1 6.5-5.5-3-5.5 3 1-6.5L3 10l6-1z','M5 3h14v18H5z M8 8h8 M8 12h8 M8 16h5','M4 21V11h4v10 M10 21V6h4v15 M16 21V3h4v18','M4 5h16v15H4z M8 5V2h8v3 M8 10h8 M8 15h8'][n%7]}"/></svg>`;
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),4000);}
 function state(){return store.state;}
@@ -63,7 +63,7 @@ function render(){
  if(['study','review','wrong','favorites'].includes(page))renderStudy();
  if(page==='today')renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render()});
  if(page==='rounds')renderRounds($('#content'),rounds,{reviewOriginal:()=>{pool='original-revised';module='all';query='';page='study';index=0;resetQuestion();render();},study:(id)=>{pool='all';module='all';query=id;page='study';index=0;resetQuestion();render();},practice:()=>{page='exam';render();},focus:()=>{pool='weak';module='all';query='';page='study';index=0;resetQuestion();render();}});
- if(page==='exam')renderExam();if(page==='progress')renderProgress();if(page==='backup')renderBackup();
+ if(page==='exam')renderExam();if(page==='progress')renderProgress();if(page==='backup')renderBackup();if(page==='settings')renderSettings();
  if(store.pending)store.onStatus('正在保存…');
  if(store.failed)store.onStatus('磁盘保存失败，请导出备份',true);
 }
@@ -123,8 +123,21 @@ function renderResult(result){
 }
 function renderProgress(){
  const activeQuestions=questions.filter(q=>q.quality?.examUse!=='hold');const learned=activeQuestions.filter(q=>record(q).attempts.length),correct=learned.filter(q=>record(q).lastCorrect),attempts=Object.values(state().records).flatMap(r=>r.attempts);
- $('#content').innerHTML=`<div class="metrics"><div><strong>${learned.length}<small> / ${activeQuestions.length}</small></strong><span>已学习题目</span></div><div><strong>${learned.length?Math.round(correct.length/learned.length*100):0}%</strong><span>最近作答正确率</span></div><div><strong>${attempts.length}</strong><span>累计作答次数</span></div></div><section class="progress-table"><h2>章节覆盖</h2>${MODULES.map(([id,name])=>{const qs=activeQuestions.filter(q=>q.module===id),done=qs.filter(q=>record(q).attempts.length).length;return `<div class="progress-row"><div><b>${name}</b><span>${done} / ${qs.length}</span></div><progress value="${done}" max="${Math.max(1,qs.length)}">${done}</progress></div>`;}).join('')}</section><section class="reading-block"><h2>复习节奏</h2><p>答对后间隔 1、3、7、14、30 天再复习；答错后 10 分钟再回忆；临近考试自动收紧，最晚考前 2 天。该安排是本软件的学习策略，不是腾讯官方考试规则。</p><p>错题本显示最近一次答错的题。答对后退出待纠正列表，完整历史仍保留在本机。题目内容版本变化后，旧作答不计入新版掌握；待修订题暂停学习与组卷。</p><p>考试目标日期：<label><input id="target-date" type="date" value="${esc(state().settings?.targetDate||'')}"></label></p></section>`;
- $('#target-date').onchange=e=>{state().settings={...state().settings,targetDate:e.target.value};save();};
+ $('#content').innerHTML=`<div class="metrics"><div><strong>${learned.length}<small> / ${activeQuestions.length}</small></strong><span>已学习题目</span></div><div><strong>${learned.length?Math.round(correct.length/learned.length*100):0}%</strong><span>最近作答正确率</span></div><div><strong>${attempts.length}</strong><span>累计作答次数</span></div></div><section class="progress-table"><h2>章节覆盖</h2>${MODULES.map(([id,name])=>{const qs=activeQuestions.filter(q=>q.module===id),done=qs.filter(q=>record(q).attempts.length).length;return `<div class="progress-row"><div><b>${name}</b><span>${done} / ${qs.length}</span></div><progress value="${done}" max="${Math.max(1,qs.length)}">${done}</progress></div>`;}).join('')}</section><section class="reading-block"><h2>复习节奏</h2><p>答对后间隔 1、3、7、14、30 天再复习；答错后 10 分钟再回忆；临近考试自动收紧，最晚考前 2 天。该安排是本软件的学习策略，不是腾讯官方考试规则。</p><p>错题本显示最近一次答错的题。答对后退出待纠正列表，完整历史仍保留在本机。题目内容版本变化后，旧作答不计入新版掌握；待修订题暂停学习与组卷。</p><p>考试目标日期与每日新题目标在「设置」页维护。</p></section>`;
+}
+// 设置页：考试日期与每日新题目标的唯一维护入口（今日任务页保留每日目标快捷输入）
+function renderSettings(){
+ const s=state().settings||{};
+ const targetDate=s.targetDate||DEFAULT_EXAM_DATE;
+ const daily=Math.max(1,Math.min(200,Number(s.dailyNew)||50));
+ const core=questions.filter(q=>q.quality?.examUse==='eligible');
+ const coreLeft=core.filter(q=>record(q).attempts.length===0).length;
+ const examMs=new Date(targetDate+'T00:00:00').getTime();
+ const days=Number.isFinite(examMs)?Math.max(0,Math.ceil((examMs-Date.now())/86400000)):null;
+ $('#content').innerHTML=`<section class="reading-block"><h2>考试日期</h2><p>用于今日页倒计时与复习间隔封顶（到期复习最晚安排在考前 2 天）。</p><label class="set-row">考试日期 <input id="set-date" type="date" value="${esc(targetDate)}"></label>${days!==null?`<p class="muted">距考试还有 ${days} 天。</p>`:''}</section><section class="reading-block"><h2>每日新题目标</h2><p>今日任务页每天推荐的新题数量，默认 50 道。</p><label class="set-row">每日目标 <input id="set-daily" type="number" min="1" max="200" value="${daily}"> 道</label><p class="muted">核心题库还有 ${coreLeft} 道未做，按当前目标约需 ${Math.ceil(coreLeft/daily)} 天完成首轮覆盖。</p></section><section class="reading-block"><p class="muted">设置随学习记录一并保存，可随备份导出导入。</p></section>`;
+ const persist=(key,value,label)=>{state().settings={...state().settings,[key]:value};save();toast(label+' 已保存');render();};
+ $('#set-date').onchange=e=>persist('targetDate',e.target.value||DEFAULT_EXAM_DATE,'考试日期');
+ $('#set-daily').onchange=e=>persist('dailyNew',Math.max(1,Math.min(200,Number(e.target.value)||50)),'每日目标');
 }
 function download(filename,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);}
 function renderBackup(){

@@ -28,7 +28,7 @@ test('今日任务页渲染：倒计时、任务、薄弱模块、最近成绩�
     actions:{startNew:(ids)=>calls.push(['new',ids]),startReview:()=>calls.push(['review']),startModule:(m)=>calls.push(['module',m]),startExam:()=>calls.push(['exam']),openLastExam:()=>calls.push(['last'])},
     save:()=>calls.push(['save']),render:()=>calls.push(['render']),
   });
-  for(const part of ['距考试还有','今日新题目标','到期复习题','核心题库完成率','近期薄弱模块','最近模拟：73 分','每日新题目标','不会被自动标记为完成'])assert(target.innerHTML.includes(part),`缺少内容：${part}`);
+  for(const part of ['距考试还有','今日新题目标','到期复习题','核心题库完成率','近期薄弱模块','最近模拟：73 分','每日新题目标','不会被自动标记为完成','value="50"'])assert(target.innerHTML.includes(part),`缺少内容：${part}`);
   assert(!target.innerHTML.includes('undefined'),'页面出现 undefined');
   assert(!target.innerHTML.includes('NaN'),'页面出现 NaN');
 });

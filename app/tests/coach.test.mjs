@@ -47,6 +47,14 @@ test('带练习模式与错因的记录通过备份校验，合并后字段保�
   assert.equal(merged.records[q.id].errorType,'concept');
 });
 
+test('今日任务：每日新题目标默认 50，settings.dailyNew 可覆盖（FR-012 设置）',()=>{
+  const s=fresh();
+  const bank=[q,q2,q3];
+  assert.equal(todayPlan(bank,s,{now:1000}).dailyNew,50);
+  s.settings={dailyNew:7};
+  assert.equal(todayPlan(bank,s,{now:1000}).dailyNew,7);
+});
+
 test('考试临近复习封顶：到期不晚于考前 2 天，且至少次日（FR-008）',()=>{
   const exam=new Date('2026-11-23T00:00:00').getTime();
   // 连续答对 4 次 → 原间隔 14 天会越过考前 2 天，应收严到 11-21

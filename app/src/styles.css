@@ -41,3 +41,8 @@ button,label.option,.file-button{touch-action:manipulation}
   .ai-head button{margin-left:auto}
   .exam-bar{position:sticky;top:0;background:#fff;z-index:2;padding:8px 0}
 }
+
+/* 设置页（FR-012 设置功能） */
+.set-row{display:flex;align-items:center;gap:10px;font-size:14px;margin:14px 0}
+.set-row input[type=date],.set-row input[type=number]{border:1px solid var(--line);border-radius:5px;padding:9px;font-size:15px}
+@media(max-width:760px){.set-row input{font-size:16px}}
