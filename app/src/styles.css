@@ -63,3 +63,5 @@ button,label.option,.file-button{touch-action:manipulation}
 .term-manual input{flex:1;border:1px solid var(--line);border-radius:7px;padding:11px 12px;font-size:14px;min-width:0}
 .term-manual .primary{min-width:82px}
 .ui-build{position:fixed;right:10px;bottom:6px;font-size:10px;color:#9aa6b8;z-index:5;pointer-events:none}
+/* iOS 聚焦 font-size<16px 的输入框会触发页面自动放大：手机端输入控件一律 16px */
+@media(max-width:760px){input,select,textarea{font-size:16px}}
