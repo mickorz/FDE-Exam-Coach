@@ -6,7 +6,7 @@ FDE Exam Coach 扩展（相对 FDE_Learning @abd6687）：
 - 题库内存缓存供 AI 组装提示词。
 其余行为与上游一致。
 """
-import argparse, json, os, sys, tempfile, threading, mimetypes, urllib.parse
+import argparse, gzip, json, os, sys, tempfile, threading, mimetypes, urllib.parse
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -99,11 +99,19 @@ class Handler(BaseHTTPRequestHandler):
     def valid_host(self):
         return host_allowed(self.headers.get('Host', ''))
 
-    def reply(self, code, content, mime='application/json; charset=utf-8'):
+    def reply(self, code, content, mime='application/json; charset=utf-8', cache='no-store', etag=None):
         body = content if isinstance(content, bytes) else json.dumps(content, ensure_ascii=False).encode()
         self.send_response(code); self.send_header('Content-Type', mime)
+        if etag: self.send_header('ETag', etag)
+        # gzip：远程（手机经 Tailscale）冷启动拉 4MB 题库曾卡死首屏，压缩后 ≈600KB（FR-011-01）
+        if 'gzip' in self.headers.get('Accept-Encoding', '').lower() and len(body) >= 1024:
+            packed = gzip.compress(body, 6)
+            if len(packed) < len(body):
+                body = packed
+                self.send_header('Content-Encoding', 'gzip'); self.send_header('Vary', 'Accept-Encoding')
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')
+        # 静态资源允许缓存但强制重验证（题库升级后 ETag 变化自动拉新）；/api/state 等仍 no-store
+        self.send_header('Cache-Control', 'no-cache, must-revalidate' if cache == 'static' else 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers(); self.wfile.write(body)
 
@@ -122,7 +130,14 @@ class Handler(BaseHTTPRequestHandler):
         if not rel: return self.reply(404, {'error':'未找到'})
         file = (ROOT / rel).resolve()
         if not file.is_relative_to(ROOT) or not file.is_file(): return self.reply(404, {'error':'未找到'})
-        self.reply(200, file.read_bytes(), mimetypes.guess_type(file)[0] or 'application/octet-stream')
+        st = file.stat()
+        etag = '"%x-%x"' % (st.st_size, int(st.st_mtime))  # size+mtime，题库升级即失效
+        if self.headers.get('If-None-Match') == etag:  # 304：手机重访零字节传输
+            self.send_response(304); self.send_header('ETag', etag)
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
+            self.send_header('Content-Length', '0')
+            self.end_headers(); return
+        self.reply(200, file.read_bytes(), mimetypes.guess_type(file)[0] or 'application/octet-stream', cache='static', etag=etag)
 
     def do_POST(self):
         if not self.valid_host(): return self.reply(403, {'error':'只允许本机访问'})
