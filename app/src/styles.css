@@ -59,3 +59,6 @@ button,label.option,.file-button{touch-action:manipulation}
 .term-panel p{margin:4px 0;font-size:14px;line-height:1.85}
 .term-panel ul{margin:4px 0;padding-left:20px;font-size:14px;line-height:1.8}
 @media(min-width:761px){.term-sheet{align-items:center}.term-panel{border-radius:14px;padding:22px 26px 30px}}
+.term-manual{display:flex;gap:8px;margin:14px 0 4px}
+.term-manual input{flex:1;border:1px solid var(--line);border-radius:7px;padding:11px 12px;font-size:14px;min-width:0}
+.term-manual .primary{min-width:82px}

@@ -90,7 +90,7 @@ function renderStudyQuestion(){
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
- $('#question').innerHTML=`<section class="question-card" aria-labelledby="stem"><div class="question-meta"><span>${q.type==='single'?'单选':'多选'} · ${esc(q.difficulty)}${ws?` · 错题状态：${ws}`:''}</span><span>${position+1} / ${total}</span></div><p class="topic">${esc(q.topic)} <span>${esc(q.id)}</span></p>${!exam&&q.quality?`<p class="version-note">${q.quality.examUse==='eligible'?'可用于自编模拟练习（难度未校准）':q.quality.examUse==='hold'?'待修订：暂停作答与计分，历史保留':'仅供知识学习：不纳入模拟计分'} · ${submitted||held?esc(q.quality.rationale):'详细审计依据提交后查看。'}</p>`:''}<h2 id="stem" tabindex="-1">${esc(q.stem)}</h2><fieldset><legend class="sr-only">${q.type==='single'?'选择一个答案':'选择所有正确答案'}</legend>${Object.entries(q.options).map(([key,text])=>`<label class="option ${answers.includes(key)?'selected':''} ${locked&&!held&&q.answer.includes(key)?'correct':''} ${locked&&answers.includes(key)&&!q.answer.includes(key)?'incorrect':''}"><input type="${q.type==='single'?'radio':'checkbox'}" name="answer" value="${esc(key)}" ${answers.includes(key)?'checked':''} ${locked?'disabled':''}><b>${esc(key)}</b><span>${esc(text)}</span></label>`).join('')}</fieldset><div class="question-actions">${exam?'':`<button id="submit" class="primary" ${locked?'disabled':''}>${held?'待修订':locked?'已提交':'提交答案'}</button>`}<button id="prev" ${position===0?'disabled':''}>上一题</button><button id="next" ${position===total-1?'disabled':''}>下一题</button><button id="favorite" aria-pressed="${!!r.favorite}">${r.favorite?'已收藏':'收藏'}</button></div><p class="keyboard-hint">A–${Object.keys(q.options).at(-1)} 选择 · ${exam?'自动保存':'Enter 提交'} · → 下一题${q.type==='multiple'?' · 多选须全部选对':''}</p></section>${locked&&!held?explanation(q):''}`;
+ $('#question').innerHTML=`<section class="question-card" aria-labelledby="stem"><div class="question-meta"><span>${q.type==='single'?'单选':'多选'} · ${esc(q.difficulty)}${ws?` · 错题状态：${ws}`:''}</span><span>${position+1} / ${total}</span></div><p class="topic">${esc(q.topic)} <span>${esc(q.id)}</span></p>${!exam&&q.quality?`<p class="version-note">${q.quality.examUse==='eligible'?'可用于自编模拟练习（难度未校准）':q.quality.examUse==='hold'?'待修订：暂停作答与计分，历史保留':'仅供知识学习：不纳入模拟计分'} · ${submitted||held?esc(q.quality.rationale):'详细审计依据提交后查看。'}</p>`:''}<h2 id="stem" tabindex="-1">${esc(q.stem)}</h2><fieldset><legend class="sr-only">${q.type==='single'?'选择一个答案':'选择所有正确答案'}</legend>${Object.entries(q.options).map(([key,text])=>`<label class="option ${answers.includes(key)?'selected':''} ${locked&&!held&&q.answer.includes(key)?'correct':''} ${locked&&answers.includes(key)&&!q.answer.includes(key)?'incorrect':''}"><input type="${q.type==='single'?'radio':'checkbox'}" name="answer" value="${esc(key)}" ${answers.includes(key)?'checked':''} ${locked?'disabled':''}><b>${esc(key)}</b><span>${esc(text)}</span></label>`).join('')}</fieldset><div class="question-actions">${exam?'':`<button id="submit" class="primary" ${locked?'disabled':''}>${held?'待修订':locked?'已提交':'提交答案'}</button>`}<button id="prev" ${position===0?'disabled':''}>上一题</button><button id="next" ${position===total-1?'disabled':''}>下一题</button><button id="favorite" aria-pressed="${!!r.favorite}">${r.favorite?'已收藏':'收藏'}</button><button id="term-lookup" aria-label="查询术语解释">查术语</button></div><p class="keyboard-hint">A–${Object.keys(q.options).at(-1)} 选择 · ${exam?'自动保存':'Enter 提交'} · → 下一题${q.type==='multiple'?' · 多选须全部选对':''} · 长按选中题目文字可查术语</p></section>${locked&&!held?explanation(q):''}`;
  document.querySelectorAll('input[name="answer"]').forEach(input=>input.onchange=()=>{
    answers=q.type==='single'?[input.value]:[...document.querySelectorAll('input[name="answer"]:checked')].map(i=>i.value);
    if(exam){state().activeExam.answers[q.id]=[...answers];save();updateExamMap();}
@@ -98,6 +98,7 @@ function renderQuestion(q,position,total,exam){
  });
  if(!exam)$('#submit').onclick=()=>{if(!answers.length){toast('请先选择答案');return;}recordAnswer(state(),q,answers,Date.now(),studyMode());submitted=true;save();renderQuestion(q,position,total,false);};
  $('#favorite').onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.favorite=!item.favorite;state().records[q.id]=item;save();$('#favorite').textContent=item.favorite?'已收藏':'收藏';$('#favorite').setAttribute('aria-pressed',String(item.favorite));};
+ const termBtn=$('#term-lookup');if(termBtn)termBtn.onclick=openTermManual;
  const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;saveTodaySession();renderStudyQuestion();}$('#stem')?.focus();};
  $('#prev').onclick=()=>move(-1);$('#next').onclick=()=>move(1);
  document.querySelectorAll('.error-type').forEach(b=>b.onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.errorType=b.dataset.errorType;state().records[q.id]=item;save();renderQuestion(q,position,total,false);});
@@ -220,6 +221,15 @@ async function openTerm(term){
   $('#term-body').innerHTML=renderTermOutput(data);
  }catch(error){$('#term-body').innerHTML='<p class="ai-conflict">术语解释不可用：'+esc(error.message)+'（不影响继续刷题）</p>';}
  finally{termBusy=false;termCandidate=term;}
+}
+function openTermManual(){
+ if(!currentQ)return;
+ termSheet.hidden=false;$('#term-title').textContent='查术语';
+ $('#term-body').innerHTML='<div class="term-manual"><input id="term-input" type="text" maxlength="40" placeholder="输入术语，如：精调 / RAG / Embedding" aria-label="术语"><button id="term-go" class="primary" type="button">解释</button></div>';
+ const input=$('#term-input');input.focus();
+ const go=()=>{const t=input.value.trim();if(t)openTerm(t);};
+ $('#term-go').onclick=go;
+ input.addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 }
 // 今日任务页动作（FR-006）
 const todayActions={
