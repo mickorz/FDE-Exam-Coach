@@ -1,4 +1,4 @@
-import {todayPlan} from './core.js';
+import {todayPlan,DEFAULT_EXAM_DATE} from './core.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // 今日任务首页（FR-006）：所有推荐均由真实作答记录推导；未完成任务不做任何自动标记
@@ -8,7 +8,7 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
  const settings=s.settings||{};
  const dailyNew=Math.max(1,Number(settings.dailyNew)||30);
  const plan=todayPlan(questions,s,{now,dailyNew});
- const targetDate=settings.targetDate||'2026-11-23';
+ const targetDate=settings.targetDate||DEFAULT_EXAM_DATE;
  const targetMs=new Date(targetDate+'T00:00:00').getTime();
  const daysLeft=Number.isFinite(targetMs)?Math.max(0,Math.ceil((targetMs-now)/86400000)):null;
  const pct=plan.coreTotal?Math.round(plan.coreLearned/plan.coreTotal*100):0;
@@ -30,7 +30,7 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
  <label class="today-quota">每日新题目标 <input id="today-daily" type="number" min="1" max="200" value="${dailyNew}"> 道</label>
 </section>
 ${plan.weakModules.length?`<section class="reading-block"><h2>近期薄弱模块</h2>${plan.weakModules.map(m=>`<div class="progress-row"><div><b>${esc(modName(m.module))}</b><span>最近正确率 ${Math.round(m.accuracy*100)}%（${m.correct}/${m.total} 次作答）</span></div><progress value="${m.correct}" max="${m.total}"></progress></div><button class="weak-drill" data-weak-module="${esc(m.module)}">专项练习 ${esc(modName(m.module))}</button>`).join('')}</section>`:`<section class="reading-block"><h2>近期薄弱模块</h2><p class="muted">作答样本还不足（每个模块至少 5 次作答才参与评估），先完成今日新题。</p></section>`}
-<section class="reading-block"><h2>今日安排建议</h2><p>${plan.dueCount?'先清到期复习，再做新题；':'暂无到期复习，直接推进新题；'}${plan.weakModules.length?`新题完成后到「${esc(modName(plan.weakModules[0].module))}」做专项训练。`:'完成后再考虑一场 15 题短练检验状态。'}</p><p class="muted">间隔复习规则：答对后 1、3、7、14、30 天再回忆；答错 10 分钟后再试。这是本软件的学习策略，不是官方考试规则。</p></section>`;
+<section class="reading-block"><h2>今日安排建议</h2><p>${plan.dueCount?'先清到期复习，再做新题；':'暂无到期复习，直接推进新题；'}${plan.weakModules.length?`新题完成后到「${esc(modName(plan.weakModules[0].module))}」做专项训练。`:'完成后再考虑一场 15 题短练检验状态。'}</p><p class="muted">间隔复习规则：答对后 1、3、7、14、30 天再回忆；答错 10 分钟后再试；临近考试自动收紧，最晚考前 2 天。这是本软件的学习策略，不是官方考试规则。</p></section>`;
  target.querySelector('#today-new').onclick=()=>actions.startNew(plan.freshIds);
  target.querySelector('#today-review').onclick=()=>actions.startReview();
  target.querySelector(last?'#today-last':'#today-exam').onclick=()=>last?actions.openLastExam():actions.startExam();

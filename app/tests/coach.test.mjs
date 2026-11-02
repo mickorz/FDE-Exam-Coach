@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recordAnswer,wrongStatus,examModuleStats,todayPlan,ERROR_TYPES,ERROR_TYPE_LABELS,validateBackup} from '../src/core.js';
+import {recordAnswer,wrongStatus,examModuleStats,todayPlan,ERROR_TYPES,ERROR_TYPE_LABELS,validateBackup,mergeBackup} from '../src/core.js';
 const q={id:'FDE-M1-001',type:'single',module:'M1',answer:['B'],quality:{examUse:'eligible'}};
 const q2={id:'FDE-M2-001',type:'single',module:'M2',answer:['A'],quality:{examUse:'eligible'}};
 const q3={id:'FDE-M2-002',type:'single',module:'M2',answer:['C'],quality:{examUse:'learning_only'}};
@@ -45,6 +45,39 @@ test('带练习模式与错因的记录通过备份校验，合并后字段保�
   const merged=validateBackup(structuredClone(s));
   assert.equal(merged.records[q.id].attempts[0].mode,'chapter');
   assert.equal(merged.records[q.id].errorType,'concept');
+});
+
+test('考试临近复习封顶：到期不晚于考前 2 天，且至少次日（FR-008）',()=>{
+  const exam=new Date('2026-11-23T00:00:00').getTime();
+  // 连续答对 4 次 → 原间隔 14 天会越过考前 2 天，应收严到 11-21
+  const s=fresh();const base=new Date('2026-11-10T12:00:00').getTime();
+  for(let i=0;i<4;i++)recordAnswer(s,q,['B'],base+i*60000,'chapter');
+  assert.equal(s.records[q.id].due,exam-2*86400000);
+  // 考前 1 天答对：至少次日再复习
+  const s2=fresh();const base2=new Date('2026-11-22T12:00:00').getTime();
+  recordAnswer(s2,q,['B'],base2,'chapter');
+  assert.equal(s2.records[q.id].due,base2+86400000);
+  // 考试已过：不再封顶，按原间隔
+  const s3=fresh();s3.settings.targetDate='2026-11-20';
+  const past=new Date('2026-11-25T12:00:00').getTime();
+  recordAnswer(s3,q2,['A'],past,'chapter');
+  assert.equal(s3.records[q2.id].due,past+86400000);
+  // 自定义较远考试日：30 天间隔不越线则不封顶
+  const s4=fresh();s4.settings.targetDate='2027-06-01';
+  const base4=new Date('2026-10-31T08:00:00').getTime();
+  for(let i=0;i<5;i++)recordAnswer(s4,q2,['A'],base4+i*60000,'chapter');
+  assert.equal(s4.records[q2.id].due,base4+4*60000+30*86400000);
+});
+
+test('合并交错历史后重算复习日同样受考前封顶约束',()=>{
+  const a=fresh(),b=fresh();
+  const base=new Date('2026-11-10T08:00:00').getTime();
+  recordAnswer(a,q,['B'],base);recordAnswer(a,q,['B'],base+60000);
+  recordAnswer(b,q,['B'],base+120000);recordAnswer(b,q,['B'],base+180000);
+  const merged=mergeBackup(a,b);
+  const exam=new Date('2026-11-23T00:00:00').getTime();
+  assert.equal(merged.records[q.id].streak,4);
+  assert.equal(merged.records[q.id].due,exam-2*86400000);
 });
 
 test('从未答错或修订换版后的新历史不产生错题状态',()=>{

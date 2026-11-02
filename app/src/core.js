@@ -1,6 +1,21 @@
 export const MODULES = [
   ['M1','AI 与生成式 AI 基础',10],['M2','ADP 产品定位与能力边界',7],['M3','ADP 核心功能与应用搭建',22],['M4','场景理解与方案设计',25],['M5','行业解决方案与案例落地',15],['M6','交付实施、评测与运维',11],['M7','安全合规与责任 AI',10]
 ];
+export const DEFAULT_EXAM_DATE = '2026-11-23';
+// 复习到期时间（FR-008）：答错 10 分钟后再试；答对按 [1,3,7,14,30] 天递增；
+// 考试临近时封顶——到期日不晚于考前 2 天，且至少次日（避免长间隔把复习排到考后）
+function examDateOf(state){
+  const raw=state?.settings?.targetDate||DEFAULT_EXAM_DATE;
+  const time=new Date(raw+'T00:00:00').getTime();
+  return Number.isFinite(time)?time:null;
+}
+function computeDue(now, correct, streak, examDate){
+  if(!correct)return now+600000;
+  let due=now+[1,3,7,14,30][Math.min(Math.max(streak-1,0),4)]*86400000;
+  if(!examDate||examDate<=now)return due;
+  const preExam=examDate-2*86400000;
+  return due>preExam?Math.max(now+86400000,preExam):due;
+}
 export const isCorrect = (given, correct) => Array.isArray(given) && given.length === correct.length && [...given].sort().join('|') === [...correct].sort().join('|');
 export function currentRecord(state, question) {
   const old=state.records[question.id]||{attempts:[],favorite:false};
@@ -9,7 +24,7 @@ export function currentRecord(state, question) {
   const result={...old,attempts,lastCorrect:undefined,due:undefined,streak:0};
   for(const a of attempts)result.streak=a.correct?result.streak+1:0;
   const last=attempts.at(-1);
-  if(last){result.lastCorrect=last.correct;result.due=last.at+(last.correct?[1,3,7,14,30][Math.min(result.streak-1,4)]*86400000:600000);}
+  if(last){result.lastCorrect=last.correct;result.due=computeDue(last.at,last.correct,result.streak,examDateOf(state));}
   return result;
 }
 export function recordAnswer(state, question, answers, now=Date.now(), mode) {
@@ -21,7 +36,7 @@ export function recordAnswer(state, question, answers, now=Date.now(), mode) {
   if(mode)attempt.mode=mode;
   old.attempts.push(attempt);
   old.streak = correct ? (old.streak||0)+1 : 0;
-  old.due = now + (correct ? [1,3,7,14,30][Math.min(old.streak-1,4)]*86400000 : 600000);
+  old.due = computeDue(now, correct, old.streak, examDateOf(state));
   old.lastCorrect = correct;
   state.records[question.id] = old;
   return correct;
@@ -128,19 +143,20 @@ export function validateBackup(value){
   }
   return value;
 }
-function recalculateRecord(record){
+function recalculateRecord(record, examDate){
   let streak=0;for(const a of record.attempts)streak=a.correct?streak+1:0;
   const last=record.attempts.at(-1);record.streak=streak;
-  if(last){record.lastCorrect=last.correct;record.due=last.at+(last.correct?[1,3,7,14,30][Math.min(streak-1,4)]*86400000:600000);}
+  if(last){record.lastCorrect=last.correct;record.due=computeDue(last.at,last.correct,streak,examDate);}
   return record;
 }
 export function mergeBackup(current,incoming,{recoverActive=false}={}){
   validateBackup(incoming); const merged=structuredClone(current);
+  const examDate=examDateOf(current);
   for(const [id,r] of Object.entries(incoming.records)){
-    const old=merged.records[id]; if(!old){merged.records[id]=recalculateRecord(structuredClone(r));continue;}
+    const old=merged.records[id]; if(!old){merged.records[id]=recalculateRecord(structuredClone(r),examDate);continue;}
     const attempts=[...old.attempts,...r.attempts].filter((a,i,arr)=>arr.findIndex(b=>b.at===a.at&&b.questionVersion===a.questionVersion&&JSON.stringify(b.answers)===JSON.stringify(a.answers))===i).sort((a,b)=>a.at-b.at);
     const latest=(r.attempts.at(-1)?.at||0)>(old.attempts.at(-1)?.at||0)?r:old;
-    merged.records[id]=recalculateRecord({...latest,attempts,favorite:!!(old.favorite||r.favorite)});
+    merged.records[id]=recalculateRecord({...latest,attempts,favorite:!!(old.favorite||r.favorite)},examDate);
   }
   merged.sessions=[...current.sessions,...incoming.sessions].filter((s,i,arr)=>arr.findIndex(t=>t.id===s.id)===i);
   const completed=new Set(merged.sessions.map(s=>s.id));
