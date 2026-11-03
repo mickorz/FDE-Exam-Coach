@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, record)
             except Exception:
                 return self.reply(500, {'error': 'AI 拆解缓存读取失败，请稍后重试'})
-        allowed = {'/':'index.html', '/index.html':'index.html', '/data/questions.json':'data/questions.json', '/data/manifest.json':'data/manifest.json', '/data/quality.json':'data/quality.json', '/evidence.html':'evidence.html', '/data/rounds.json':'data/rounds.json', '/manifest.webmanifest':'manifest.webmanifest', '/icon-192.png':'icon-192.png', '/icon-512.png':'icon-512.png'}
+        allowed = {'/':'index.html', '/index.html':'index.html', '/data/questions.json':'data/questions.json', '/data/manifest.json':'data/manifest.json', '/data/quality.json':'data/quality.json', '/evidence.html':'evidence.html', '/data/rounds.json':'data/rounds.json', '/manifest.webmanifest':'manifest.webmanifest', '/icon-192.png':'icon-192.png', '/icon-512.png':'icon-512.png', '/sw.js':'sw.js'}
         rel = allowed.get(path)
         if path.startswith('/src/'): rel = path.lstrip('/')
         if not rel: return self.reply(404, {'error':'未找到'})
