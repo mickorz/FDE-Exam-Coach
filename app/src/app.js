@@ -1,11 +1,11 @@
-import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE,applySelfEval,setMastery,needsConsolidation,qVersion,CONFIDENCE_LEVELS,OBSTACLE_TYPES,MASTERY_LEVELS} from './core.js';
+import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE,applySelfEval,setMastery,needsConsolidation,qVersion,CONFIDENCE_LEVELS,OBSTACLE_TYPES,MASTERY_LEVELS,obstacleStats,masteryStats,luckyCorrect,recovered} from './core.js';
 import {Store} from './store.js';
 import {renderRounds} from './rounds.js';
 import {renderToday} from './today.js';
 const esc = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
 const store=new Store();
-let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[];
+let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,historyView=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[];
 // FR-012 修复：今日练习会话存 sessionStorage，刷新后首页可"继续今日练习（第 N 题）"，不再看似从头开始
 const TODAY_KEY='fde-today-session-v1';
 const dayKey=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
@@ -24,6 +24,7 @@ function inPool(q){
  if(pool==='all')return true;
  if(pool==='unseen')return !state().records[q.id]?.attempts?.length;
  if(pool==='today')return todayNewIds.includes(q.id);
+ if(pool==='consolidation')return needsConsolidation(record(q),qVersion(q));
  if(pool==='original')return rounds[0]?.recheckedOriginalIds.includes(q.id);
  if(pool==='original-revised')return rounds[0]?.revisedOriginalIds.includes(q.id);
  if(pool==='weak')return rounds[0]?.focusedPracticeIds.includes(q.id);
@@ -31,7 +32,7 @@ function inPool(q){
  return coreIds.includes(q.id);
 }
 function poolOptions(){
- const base=[['core','核心 500 题'],['original','原 400 题 · 已逐题复核'],['original-revised','原题修订专项 118 题'],['revised','本轮重写 100 题'],['weak','原创专项 15 题'],['all','全部可学习题'],['unseen','未做题'],['random','随机练习'],['today','今日新题']];
+ const base=[['core','核心 500 题'],['original','原 400 题 · 已逐题复核'],['original-revised','原题修订专项 118 题'],['revised','本轮重写 100 题'],['weak','原创专项 15 题'],['all','全部可学习题'],['unseen','未做题'],['consolidation','待巩固队列（理解诊断）'],['random','随机练习'],['today','今日新题']];
  return base.map(([v,l])=>`<option value="${v}" ${pool===v?'selected':''}>${l}</option>`).join('');
 }
 function filtered(){
@@ -39,7 +40,7 @@ function filtered(){
    if(!randomIds)randomIds=shuffle(questions.filter(q=>q.quality?.examUse!=='hold').map(q=>q.id));
    return randomIds.map(id=>byId.get(id)).filter(q=>{const r=record(q);return (module==='all'||q.module===module)&&(!query||[q.stem,q.topic,q.id,...Object.values(q.options)].join(' ').toLowerCase().includes(query.toLowerCase()))&&(page!=='favorites'||r.favorite)&&(page!=='review'||r.due&&r.due<=Date.now());});
  }
- return questions.filter(q=>{
+ const list=questions.filter(q=>{
   const r=record(q);const ws=page==='wrong'?wrongStatus(state(),q):null;
   return (!['study','review'].includes(page)||inPool(q))
    &&(!['study','review'].includes(page)||q.quality?.examUse!=='hold')
@@ -49,12 +50,19 @@ function filtered(){
    &&(page!=='favorites'||r.favorite)
    &&(page!=='review'||r.due&&r.due<=Date.now());
  });
+ // FR-013 待巩固队列：优先级排序——仍然不懂 > 部分理解 > 靠猜 > 末次答错 > 其他；同级先做更早的
+ if(pool==='consolidation'){
+  const tier=x=>{const rr=record(x);const last=rr.attempts.at(-1)||{};if(rr.mastery==='lost')return 0;if(rr.mastery==='partial')return 1;if(last.confidence==='guess')return 2;if(last.correct===false)return 3;return 4;};
+  list.sort((a,b)=>tier(a)-tier(b)||((record(a).attempts.at(-1)?.at||0)-(record(b).attempts.at(-1)?.at||0)));
+ }
+ return list;
 }
 // 当前页面对应的练习模式标记（FR-002）
 function studyMode(){
  if(page==='wrong')return 'wrong';
  if(page==='favorites')return 'favorite';
  if(page==='review')return 'review';
+ if(pool==='consolidation')return 'consolidation';
  if(pool==='random')return 'random';
  if(pool==='unseen'||pool==='today')return 'unseen';
  return 'chapter';
@@ -66,14 +74,14 @@ function render(){
  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
  document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{if(state().activeExam){toast('模拟考试进行中，请先交卷再进入章节学习');return;}module=b.dataset.module;page='study';index=0;resetQuestion();render();});
  if(['study','review','wrong','favorites'].includes(page))renderStudy();
- if(page==='today')renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render(),resume:todayResume()});
+ if(page==='today'){const queueIds=questions.filter(q=>needsConsolidation(record(q),qVersion(q))).map(q=>q.id);renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render(),resume:todayResume(),diagnosis:{queueCount:queueIds.length,obstacle:obstacleStats(state().records),mastery:masteryStats(state().records),lucky:questions.filter(q=>luckyCorrect(record(q))).length,recovered:questions.filter(q=>recovered(record(q),qVersion(q))).length}});}
  if(page==='rounds')renderRounds($('#content'),rounds,{reviewOriginal:()=>{pool='original-revised';module='all';query='';page='study';index=0;resetQuestion();render();},study:(id)=>{pool='all';module='all';query=id;page='study';index=0;resetQuestion();render();},practice:()=>{page='exam';render();},focus:()=>{pool='weak';module='all';query='';page='study';index=0;resetQuestion();render();}});
  if(page==='exam')renderExam();if(page==='progress')renderProgress();if(page==='backup')renderBackup();if(page==='settings')renderSettings();
  if(store.pending)store.onStatus('正在保存…');
  if(store.failed)store.onStatus('磁盘保存失败，请导出备份',true);
 }
 function navigate(next){if(state().activeExam&&['today','study','review','wrong','favorites','rounds'].includes(next)){toast('模拟考试进行中，请先交卷再查看练习与解析');return;}page=next;index=0;resetQuestion();examResult=null;statusFilter='active';render();}
-function resetQuestion(){answers=[];submitted=false;}
+function resetQuestion(){answers=[];submitted=false;historyView=false;}
 function renderStudy(){
  selectedList=filtered();index=Math.min(index,Math.max(0,selectedList.length-1));
  $('#content').innerHTML=`<div class="filters">${['study','review'].includes(page)?`<label class="sr-only" for="pool">训练范围</label><select id="pool">${poolOptions()}</select>`:''}<label class="sr-only" for="module">考纲模块</label><select id="module"><option value="all">全部章节</option>${MODULES.map(([id,name])=>`<option value="${id}" ${module===id?'selected':''}>${name}</option>`).join('')}</select><label class="sr-only" for="search">搜索题目或考点</label><input id="search" type="search" placeholder="搜索题目或考点" value="${esc(query)}">${page==='wrong'?`<label class="sr-only" for="wstatus">错题状态</label><select id="wstatus"><option value="active" ${statusFilter==='active'?'selected':''}>待纠正</option><option value="待复习" ${statusFilter==='待复习'?'selected':''}>待复习</option><option value="复习中" ${statusFilter==='复习中'?'selected':''}>复习中</option><option value="暂时掌握" ${statusFilter==='暂时掌握'?'selected':''}>暂时掌握</option><option value="已掌握" ${statusFilter==='已掌握'?'selected':''}>已掌握</option><option value="" ${!statusFilter?'selected':''}>全部错题</option></select>`:''}</div><div id="question"></div>`;
@@ -88,20 +96,22 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103d';
+const UI_BUILD='1103e';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
- $('#question').innerHTML=`<section class="question-card" aria-labelledby="stem"><div class="question-meta"><span>${q.type==='single'?'单选':'多选'} · ${esc(q.difficulty)}${ws?` · 错题状态：${ws}`:''}</span><span>${position+1} / ${total}</span></div><p class="topic">${esc(q.topic)} <span>${esc(q.id)}</span></p>${!exam&&q.quality?`<p class="version-note">${q.quality.examUse==='eligible'?'可用于自编模拟练习（难度未校准）':q.quality.examUse==='hold'?'待修订：暂停作答与计分，历史保留':'仅供知识学习：不纳入模拟计分'} · ${submitted||held?esc(q.quality.rationale):'详细审计依据提交后查看。'}</p>`:''}<h2 id="stem" tabindex="-1">${esc(q.stem)}</h2><fieldset><legend class="sr-only">${q.type==='single'?'选择一个答案':'选择所有正确答案'}</legend>${Object.entries(q.options).map(([key,text])=>`<label class="option ${answers.includes(key)?'selected':''} ${locked&&!held&&q.answer.includes(key)?'correct':''} ${locked&&answers.includes(key)&&!q.answer.includes(key)?'incorrect':''}"><input type="${q.type==='single'?'radio':'checkbox'}" name="answer" value="${esc(key)}" ${answers.includes(key)?'checked':''} ${locked?'disabled':''}><b>${esc(key)}</b><span>${esc(text)}</span></label>`).join('')}</fieldset><div class="question-actions">${exam?'':`<button id="submit" class="primary" ${locked?'disabled':''}>${held?'待修订':locked?'已提交':'提交答案'}</button>`}<button id="prev" ${position===0?'disabled':''}>上一题</button><button id="next" ${position===total-1?'disabled':''}>下一题</button><button id="favorite" aria-pressed="${!!r.favorite}">${r.favorite?'已收藏':'收藏'}</button><button id="term-lookup" aria-label="查询术语解释">查术语</button>${exam?'':'<button id="breakdown-quick" type="button" aria-label="随时查看考点速览">考点速览</button>'}</div><p class="keyboard-hint">A–${Object.keys(q.options).at(-1)} 选择 · ${exam?'自动保存':'Enter 提交'} · → 下一题${q.type==='multiple'?' · 多选须全部选对':''} · 长按选中题目文字可查术语</p></section>${locked&&!held?explanation(q):''}`;
+ $('#question').innerHTML=`<section class="question-card" aria-labelledby="stem"><div class="question-meta"><span>${q.type==='single'?'单选':'多选'} · ${esc(q.difficulty)}${ws?` · 错题状态：${ws}`:''}</span><span>${position+1} / ${total}</span></div><p class="topic">${esc(q.topic)} <span>${esc(q.id)}</span></p>${!exam&&q.quality?`<p class="version-note">${q.quality.examUse==='eligible'?'可用于自编模拟练习（难度未校准）':q.quality.examUse==='hold'?'待修订：暂停作答与计分，历史保留':'仅供知识学习：不纳入模拟计分'} · ${submitted||held?esc(q.quality.rationale):'详细审计依据提交后查看。'}</p>`:''}<h2 id="stem" tabindex="-1">${esc(q.stem)}</h2><fieldset><legend class="sr-only">${q.type==='single'?'选择一个答案':'选择所有正确答案'}</legend>${Object.entries(q.options).map(([key,text])=>`<label class="option ${answers.includes(key)?'selected':''} ${locked&&!held&&q.answer.includes(key)?'correct':''} ${locked&&answers.includes(key)&&!q.answer.includes(key)?'incorrect':''}"><input type="${q.type==='single'?'radio':'checkbox'}" name="answer" value="${esc(key)}" ${answers.includes(key)?'checked':''} ${locked?'disabled':''}><b>${esc(key)}</b><span>${esc(text)}</span></label>`).join('')}</fieldset><div class="question-actions">${exam?'':`<button id="submit" class="primary" ${locked?'disabled':''}>${held?'待修订':locked?'已提交':'提交答案'}</button>`}<button id="prev" ${position===0?'disabled':''}>上一题</button><button id="next" ${position===total-1?'disabled':''}>下一题</button><button id="favorite" aria-pressed="${!!r.favorite}">${r.favorite?'已收藏':'收藏'}</button><button id="term-lookup" aria-label="查询术语解释">查术语</button>${exam?'':'<button id="breakdown-quick" type="button" aria-label="随时查看考点速览">考点速览</button>'}${!exam&&!locked&&r.attempts.length?'<button id="history-view" type="button" title="查看上次作答与考点解析，不新建作答记录">上次作答解析</button>':''}</div><p class="keyboard-hint">A–${Object.keys(q.options).at(-1)} 选择 · ${exam?'自动保存':'Enter 提交'} · → 下一题${q.type==='multiple'?' · 多选须全部选对':''} · 长按选中题目文字可查术语</p></section>${(locked&&!held)||(!exam&&historyView)?explanation(q):''}`;
  document.querySelectorAll('input[name="answer"]').forEach(input=>input.onchange=()=>{
    answers=q.type==='single'?[input.value]:[...document.querySelectorAll('input[name="answer"]:checked')].map(i=>i.value);
    if(exam){state().activeExam.answers[q.id]=[...answers];save();updateExamMap();}
+   if(historyView){historyView=false;renderQuestion(q,position,total,false);return;} // 从历史视图重新作答：先退出历史再继续选
    document.querySelectorAll('.option').forEach(o=>o.classList.toggle('selected',o.querySelector('input').checked));
  });
  if(!exam)$('#submit').onclick=()=>{if(!answers.length){toast('请先选择答案');return;}recordAnswer(state(),q,answers,Date.now(),studyMode());submitted=true;save();renderQuestion(q,position,total,false);};
  $('#favorite').onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.favorite=!item.favorite;state().records[q.id]=item;save();$('#favorite').textContent=item.favorite?'已收藏':'收藏';$('#favorite').setAttribute('aria-pressed',String(item.favorite));};
  const termBtn=$('#term-lookup');if(termBtn)termBtn.onclick=openTermManual;
  const bdqBtn=$('#breakdown-quick');if(bdqBtn)bdqBtn.onclick=()=>openBreakdownSheet(q);
+ const hvBtn=$('#history-view');if(hvBtn)hvBtn.onclick=()=>{const last=record(q).attempts.at(-1);if(!last)return;answers=Array.isArray(last.answers)?last.answers.slice():[];historyView=true;renderQuestion(q,position,total,false);$('#stem')?.focus();};
  const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;saveTodaySession();renderStudyQuestion();}$('#stem')?.focus();};
  $('#prev').onclick=()=>move(-1);$('#next').onclick=()=>move(1);
  document.querySelectorAll('.error-type').forEach(b=>b.onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.errorType=b.dataset.errorType;state().records[q.id]=item;save();renderQuestion(q,position,total,false);});
@@ -335,6 +345,7 @@ const todayActions={
  startNew(ids){if(!ids.length){toast('今日新题目标已完成，可在章节学习选择未做题继续');return;}todayNewIds=ids;randomIds=null;pool='today';module='all';query='';page='study';index=0;saveTodaySession();resetQuestion();render();},
  resumeToday(){const r=todayResume();if(!r)return;todayNewIds=r.session.ids;randomIds=null;pool='today';module='all';query='';page='study';index=r.index;resetQuestion();render();},
  startReview(){page='review';index=0;resetQuestion();render();},
+ startConsolidation(){const ids=questions.filter(q=>needsConsolidation(record(q),qVersion(q))).map(q=>q.id);if(!ids.length){toast('当前没有待巩固题目');return;}todayNewIds=[];randomIds=null;pool='consolidation';module='all';query='';page='study';index=0;resetQuestion();render();},
  startModule(id){module=id;pool='core';query='';page='study';index=0;resetQuestion();render();},
  startExam(){page='exam';index=0;resetQuestion();render();},
  openLastExam(){const s=[...state().sessions].at(-1);if(!s)return;examResult=s;page='exam';render();}

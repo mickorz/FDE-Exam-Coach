@@ -1,13 +1,15 @@
-import {todayPlan,DEFAULT_EXAM_DATE} from './core.js';
+import {todayPlan,DEFAULT_EXAM_DATE,OBSTACLE_TYPES} from './core.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // 今日任务首页（FR-006）：所有推荐均由真实作答记录推导；未完成任务不做任何自动标记
-export function renderToday(target,{questions,state,manifest,MODULES,actions,save,render,resume=null}){
+export function renderToday(target,{questions,state,manifest,MODULES,actions,save,render,resume=null,diagnosis=null}){
  const now=Date.now();
  const s=state();
  const settings=s.settings||{};
  const dailyNew=Math.max(1,Number(settings.dailyNew)||50);
  const plan=todayPlan(questions,s,{now,dailyNew});
+ const diag=diagnosis||{queueCount:0,obstacle:{marked:0,counts:{}},mastery:{understood:0,partial:0,lost:0,unmarked:0},lucky:0,recovered:0};
+ const obstacleChips=Object.entries(diag.obstacle.counts||{}).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,n])=>{const label=(OBSTACLE_TYPES.find(([key])=>key===k)?.[1]||k).split('：')[0];return `<span class="diag-chip">${esc(label)} × ${n}</span>`;}).join('');
  const targetDate=settings.targetDate||DEFAULT_EXAM_DATE;
  const targetMs=new Date(targetDate+'T00:00:00').getTime();
  const daysLeft=Number.isFinite(targetMs)?Math.max(0,Math.ceil((targetMs-now)/86400000)):null;
@@ -31,7 +33,8 @@ export function renderToday(target,{questions,state,manifest,MODULES,actions,sav
  <label class="today-quota">每日新题目标 <input id="today-daily" type="number" min="1" max="200" value="${dailyNew}"> 道</label>
 </section>
 ${plan.weakModules.length?`<section class="reading-block"><h2>近期薄弱模块</h2>${plan.weakModules.map(m=>`<div class="progress-row"><div><b>${esc(modName(m.module))}</b><span>最近正确率 ${Math.round(m.accuracy*100)}%（${m.correct}/${m.total} 次作答）</span></div><progress value="${m.correct}" max="${m.total}"></progress></div><button class="weak-drill" data-weak-module="${esc(m.module)}">专项练习 ${esc(modName(m.module))}</button>`).join('')}</section>`:`<section class="reading-block"><h2>近期薄弱模块</h2><p class="muted">作答样本还不足（每个模块至少 5 次作答才参与评估），先完成今日新题。</p></section>`}
-<section class="reading-block"><h2>今日安排建议</h2><p>${plan.dueCount?'先清到期复习，再做新题；':'暂无到期复习，直接推进新题；'}${plan.weakModules.length?`新题完成后到「${esc(modName(plan.weakModules[0].module))}」做专项训练。`:'完成后再考虑一场 15 题短练检验状态。'}</p><p class="muted">间隔复习规则：答对后 1、3、7、14、30 天再回忆；答错 10 分钟后再试；临近考试自动收紧，最晚考前 2 天。这是本软件的学习策略，不是官方考试规则。</p></section>`;
+<section class="reading-block"><h2>今日安排建议</h2><p>${plan.dueCount?'先清到期复习，再做新题；':'暂无到期复习，直接推进新题；'}${plan.weakModules.length?`新题完成后到「${esc(modName(plan.weakModules[0].module))}」做专项训练。`:'完成后再考虑一场 15 题短练检验状态。'}</p><p class="muted">间隔复习规则：答对后 1、3、7、14、30 天再回忆；答错 10 分钟后再试；临近考试自动收紧，最晚考前 2 天。这是本软件的学习策略，不是官方考试规则。</p></section>
+<section class="reading-block"><h2>理解诊断（FR-013）</h2><div class="diag-row"><span>待巩固 <b>${diag.queueCount}</b> 题</span><span>靠猜答对 <b>${diag.lucky}</b> 题</span><span>已挽回 <b>${diag.recovered}</b> 题</span><span>已理解 <b>${diag.mastery.understood}</b> 题</span></div>${obstacleChips?`<div class="diag-obstacles">${obstacleChips}</div>`:''}<p class="muted">待巩固入队：末次答错、自评“靠猜”、标记“部分理解/仍然不懂”、障碍含知识盲区等；在题目下方标“已理解”（晚于末次作答）即出队。</p>${diag.queueCount?`<button id="today-consolidation" class="primary">开始巩固练习（${diag.queueCount} 题）</button>`:'<p class="muted">当前没有待巩固题目，继续保持。</p>'}</section>`;
  target.querySelector('#today-new').onclick=()=>actions.startNew(plan.freshIds);
  const resumeBtn=target.querySelector('#today-resume');if(resumeBtn)resumeBtn.onclick=()=>actions.resumeToday?.();
  target.querySelector('#today-review').onclick=()=>actions.startReview();
@@ -42,4 +45,5 @@ ${plan.weakModules.length?`<section class="reading-block"><h2>近期薄弱模块
    save();render();
  };
  target.querySelectorAll('[data-weak-module]').forEach(b=>b.onclick=()=>actions.startModule(b.dataset.weakModule));
+ const consBtn=target.querySelector('#today-consolidation');if(consBtn)consBtn.onclick=()=>actions.startConsolidation?.();
 }

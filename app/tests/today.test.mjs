@@ -73,3 +73,24 @@ test('今日页展示当日进度与"继续今日练习"按钮（修复 bug-没�
   });
   assert(target2.innerHTML.includes('继续今日练习（第 3/10 题）'),'应渲染继续按钮');
 });
+
+test('理解诊断卡（FR-013 Stage D）：队列计数、障碍分布与巩固入口齐全',()=>{
+  const s=state();
+  recordAnswer(s,questions[1],['A'],Date.now()-1000); // 答错 → 入队
+  const elements={};
+  const target={...stubElement(),querySelector(sel){return elements[sel]??=stubElement();}};
+  const calls=[];
+  renderToday(target,{
+    questions,state:()=>s,manifest:{version:'2026.10.13.3'},
+    MODULES:[['M1','AI 基础',10],['M2','ADP 定位',7],['M3','核心功能',22]],
+    actions:{startNew:()=>{},startReview:()=>{},startModule:()=>{},startExam:()=>{},openLastExam:()=>{},startConsolidation:()=>calls.push(['consolidation'])},
+    save:()=>{},render:()=>{},
+    diagnosis:{queueCount:3,obstacle:{marked:2,counts:{knowledge_gap:2,term:1}},mastery:{understood:1,partial:2,lost:0,unmarked:5},lucky:1,recovered:1},
+  });
+  for(const part of ['理解诊断','待巩固 <b>3</b> 题','靠猜答对 <b>1</b> 题','已挽回 <b>1</b> 题','知识盲区 × 2','术语不懂 × 1','开始巩固练习（3 题）','标“已理解”（晚于末次作答）即出队'])assert(target.innerHTML.includes(part),`缺少内容：${part}`);
+  assert(!target.innerHTML.includes('undefined'));
+  assert(!target.innerHTML.includes('NaN'));
+  const btn=target.querySelector('#today-consolidation');
+  btn.onclick();
+  assert.deepEqual(calls,[['consolidation']]);
+});
