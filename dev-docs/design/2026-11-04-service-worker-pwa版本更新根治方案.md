@@ -1,6 +1,6 @@
 # Service Worker 根治主屏 PWA 版本滞后方案（FR-013 附带基础设施）
 
-- 日期：2026-11-04（方案定稿，待执行）
+- 日期：2026-11-04 定稿，同日执行完毕（Stage 1-3，commit 9c3327c 起）
 - 背景：`dev-docs/experience/ios-pwa-startup-snapshot-stale-ui-build.md`（iOS 主屏 WebApp 启动快照不拉新 HTML/JS，ETag/no-cache 无效，"进度新代码旧"）
 - 优先级：P1（不阻塞考试复习，但每次发版都踩，建议 11-05 执行）
 - 预估：~1 小时（含测试与真机验证）
@@ -25,12 +25,12 @@
 
 - 缓存名带版本：`fde-ui-<UI_BUILD>`。UI_BUILD 变化 ⇒ 新 cache 开张 ⇒ 旧 cache 整体删除（`activate` 里 `caches.keys()` 清理非当前版本）。
 - SW 自更新：注册时 `updateViaCache:'none'`（绕过 HTTP 缓存检查 sw.js 本体）；`sw.js` 响应 `Cache-Control: no-cache`（由 server.py 静态分支自然提供，需确认不走 ETag 304 也行——直接给 no-store 或 no-cache 均可，保证拉新）。
-- 新版就绪提示：页面监听 `registration.onupdatefound` / 每 30s `registration.update()`；检测到新 SW waiting 时顶部提示"新版本已就绪，点击刷新"→ `postMessage` 触发 `skipWaiting` + `clients.claim` + `location.reload()`。（P0 可简化为静默 skipWaiting+下次冷启动生效，提示条做成 P1 增强，先实现简单版）
+- 新版就绪提示：页面监听 `registration.onupdatefound` / 每 30s `registration.update()`；检测到新 SW waiting 时顶部提示"新版本已就绪，点击刷新"→ `postMessage` 触发 `skipWaiting` + `clients.claim` + `location.reload()`。（已按简版实现：install 时 skipWaiting + activate 时 clients.claim，静默生效，无提示条；提示条留作 P1）
 
 ### `app/server.py`
 
 - 静态白名单 `allowed` map 增加 `'/sw.js': ROOT/'sw.js'`；其响应头确保 `Cache-Control: no-cache, must-revalidate`（现有静态分支已带 ETag+no-cache，天然满足，无需特殊处理；重点是不被 service worker 自己缓存）。
-- `Service-Worker-Allowed: /` 头（scope=/ 需要，同路径部署其实不需要，但加上无害）。
+实施备注：sw.js 与页面同根路径部署，无需 `Service-Worker-Allowed` 头（未加，验证 200 正常）；未做 install 预缓存，采用运行时缓存，首访即缓存。
 
 ### `app/index.html`
 

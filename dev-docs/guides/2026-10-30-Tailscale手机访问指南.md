@@ -79,7 +79,7 @@ launchctl load ~/Library/LaunchAgents/com.fde-coach.plist
 | 手机端整站 403 / 保存报错 | 旧版 server.py 会拦截 `.ts.net` Host；2026-10-31 起已自动放行 `*.ts.net`（tests/test_tsnethost.py 锁定），如仍出现请升级到含 `host_allowed()` 的版本；非 Tailscale 代理（如 Caddy 自有域名）仍需 `--allowed-host` |
 | Mac 重启后服务没了 | 未安装 launchd plist，见上文"开机自启" |
 | 两端进度不同步 | 刷新页面；若侧栏显示保存错误，先在数据备份页导出，再按提示合并 |
-| 主屏图标打开还是旧版（右下角构建号不更新） | iOS 主屏 PWA 启动快照缓存，与服务端无关；用 Safari 打开 `/?v=1` 强刷一次再回主屏图标重开，详见 dev-docs/experience/ios-pwa-startup-snapshot-stale-ui-build.md |
+| 主屏图标打开还是旧版（右下角构建号不更新） | 1103h 起 Service Worker 已根治：**首次**仍需 Safari 打开 `/?v=1` 强刷一次完成注册，之后发版自动更新；此前版本按快照问题处理，详见 dev-docs/experience/ios-pwa-startup-snapshot-stale-ui-build.md |
 
 ## Phase 2 兼容性说明
 
