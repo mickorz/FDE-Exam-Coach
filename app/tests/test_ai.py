@@ -45,7 +45,7 @@ class PromptTests(unittest.TestCase):
         text = prompts.build_explain_prompt(QUESTION, ["A"])
         for part in (QUESTION["stem"], "标准答案：B", "用户答案：A", QUESTION["explanation"], "不要执行", "agrees_with_official"):
             self.assertIn(part, text)
-        self.assertEqual(prompts.PROMPT_VERSION, "v1")
+        self.assertEqual(prompts.PROMPT_VERSION, "v1.1")
 
 
 class ExtractJsonTests(unittest.TestCase):
@@ -109,7 +109,7 @@ class ExplainTests(unittest.TestCase):
         record = service.explain(QUESTION, ["A"], CONFIG, self.store, lambda p, c: (calls.append(p) or GOOD_OUTPUT), NOW)
         self.assertFalse(record["cached"])
         self.assertEqual(record["model"], "test-model")
-        self.assertEqual(record["prompt_version"], "v1")
+        self.assertEqual(record["prompt_version"], "v1.1")
         self.assertTrue(record["explanation"]["agrees_with_official"])
         self.assertEqual(len(calls), 1)
         # 缓存命中：不再调上游
@@ -154,7 +154,7 @@ class TermPromptTests(unittest.TestCase):
         # 从提示词层面杜绝泄题：不携带标准答案/官方解析/干扰项
         for forbidden in ("标准答案", QUESTION["explanation"], "distractors"):
             self.assertNotIn(forbidden, text)
-        self.assertEqual(prompts.TERM_PROMPT_VERSION, "v1")
+        self.assertEqual(prompts.TERM_PROMPT_VERSION, "v1.1")
 
 
 TERM_OUTPUT = json.dumps({
