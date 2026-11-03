@@ -126,6 +126,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, state)
             except Exception: return self.reply(500, {'error':'本地记录文件无法读取，请先备份 local-data 目录，不会自动覆盖。'})
         if path == '/api/health': return self.reply(200, {'app':'fde-study','version':'1.2.0','root':str(ROOT),'dataPath':str(STATE_PATH.resolve()),'pid':os.getpid()})
+        if path == '/api/ai/breakdown':
+            # FR-013-CACHE-02 只读缓存查询：绝不调 AI、不计额度；未命中 cached:false（stale=版本变化提示）
+            try:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                question_id = (query.get('questionId') or [''])[0]
+                if not isinstance(question_id, str) or not question_id or len(question_id) > 64:
+                    return self.reply(400, {'error': '请求参数无效'})
+                question = bank().get(question_id)
+                if not question: return self.reply(404, {'error': '题库中不存在该题目'})
+                from ai.client import load_config
+                config = load_config(STATE_PATH.parent)
+                record = ai_service.breakdown_cached(question, config, AI)
+                if record is None:
+                    return self.reply(200, {'cached': False, 'stale': ai_service.breakdown_stale(question, config, AI)})
+                return self.reply(200, record)
+            except Exception:
+                return self.reply(500, {'error': 'AI 拆解缓存读取失败，请稍后重试'})
         allowed = {'/':'index.html', '/index.html':'index.html', '/data/questions.json':'data/questions.json', '/data/manifest.json':'data/manifest.json', '/data/quality.json':'data/quality.json', '/evidence.html':'evidence.html', '/data/rounds.json':'data/rounds.json', '/manifest.webmanifest':'manifest.webmanifest', '/icon-192.png':'icon-192.png', '/icon-512.png':'icon-512.png'}
         rel = allowed.get(path)
         if path.startswith('/src/'): rel = path.lstrip('/')

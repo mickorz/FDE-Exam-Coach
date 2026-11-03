@@ -41,8 +41,11 @@ def completion_for(question_id: str) -> str:
 class MockUpstream(BaseHTTPRequestHandler):
     call_count = 0
     garbage = False
+    delay = 0.0
 
     def do_POST(self):
+        if MockUpstream.delay:
+            time.sleep(MockUpstream.delay)
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length)
         MockUpstream.call_count += 1
@@ -61,6 +64,15 @@ class MockUpstream(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass
+
+
+def get(port, question_id):
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/ai/breakdown?questionId={urllib.parse.quote(question_id)}")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
 def post(port, payload, origin=None, client=True):
@@ -131,6 +143,53 @@ class BreakdownAPITests(unittest.TestCase):
         code, data = post(self.port, {"questionId": QUESTION_ID}, client=False)
         self.assertEqual(code, 403)
         self.assertEqual(data["error"], "请求标识无效")
+
+    def test_get_readonly_cache_flow(self):
+        # 已生成题：GET 命中，返回完整五段式，上游零调用、不耗额度
+        MockUpstream.call_count = 0
+        usage_before = json.loads((Path(self.data_dir.name) / "ai-explanations.json").read_text("utf-8")).get("usage", {})
+        code, data = get(self.port, QUESTION_ID)
+        self.assertEqual(code, 200)
+        self.assertTrue(data["cached"])
+        self.assertEqual(data["kind"], "breakdown")
+        self.assertIn("exam_focus", data["explanation"])
+        self.assertEqual(MockUpstream.call_count, 0)
+        # 未生成题：cached:false 且 stale:false，仍零调用
+        fresh_id = list(BANK)[-1]  # 全套测试都不会生成的题（避开字母序在前的并发用例目标）
+        code, data = get(self.port, fresh_id)
+        self.assertEqual(code, 200)
+        self.assertFalse(data["cached"])
+        self.assertFalse(data["stale"])
+        self.assertEqual(MockUpstream.call_count, 0)
+        # 参数守卫
+        self.assertEqual(get(self.port, "不存在")[0], 404)
+        self.assertEqual(get(self.port, "")[0], 400)
+        # GET 不写 usage
+        usage_after = json.loads((Path(self.data_dir.name) / "ai-explanations.json").read_text("utf-8")).get("usage", {})
+        self.assertEqual(usage_after, usage_before)
+
+    def test_concurrent_same_question_single_generation(self):
+        # FR-013-CACHE-04：同题并发只生成一次；不同题互不阻塞由实现保证（按缓存键分闸）
+        MockUpstream.delay = 0.5
+        MockUpstream.call_count = 0
+        target = "FDE-M1-003"
+        results = []
+        barrier = threading.Barrier(2)
+
+        def worker():
+            barrier.wait()
+            results.append(post(self.port, {"questionId": target}))
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads: t.start()
+        for t in threads: t.join(timeout=15)
+        MockUpstream.delay = 0.0
+        self.assertEqual(len(results), 2)
+        for code, data in results:
+            self.assertEqual(code, 200)
+        self.assertEqual(results[0][1]["explanation"], results[1][1]["explanation"])
+        self.assertTrue(any(d["cached"] for _, d in results))  # 至少一方复用
+        self.assertEqual(MockUpstream.call_count, 1)  # 关键断言：上游只被调用一次
 
     def test_upstream_garbage_maps_to_502(self):
         MockUpstream.garbage = True

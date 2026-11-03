@@ -52,6 +52,11 @@ class AIStore:
         with self.lock:
             return self._load()["explanations"].get(key)
 
+    def find_by_question(self, question_id: str) -> list:
+        """同题全部缓存记录（区分“从未生成”与“版本变化已失效”，FR-013-CACHE-06）。"""
+        with self.lock:
+            return [r for r in self._load()["explanations"].values() if r.get("question_id") == question_id]
+
     def put(self, key: str, record: dict) -> None:
         with self.lock:
             data = self._load()

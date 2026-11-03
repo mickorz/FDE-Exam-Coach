@@ -4,6 +4,7 @@ import datetime
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -276,6 +277,40 @@ class BreakdownTests(unittest.TestCase):
         with self.assertRaises(service.AIParseError) as ctx:
             service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: json.dumps(bad, ensure_ascii=False), NOW)
         self.assertIn("覆盖", str(ctx.exception))
+
+    def test_stale_detection(self):
+        # 空缓存：既不命中也谈不上失效
+        self.assertFalse(service.breakdown_stale(QUESTION, CONFIG, self.store))
+        self.assertIsNone(service.breakdown_cached(QUESTION, CONFIG, self.store))
+        # 旧内容版本记录存在：当前键未命中 → stale=True，且绝不返回旧数据
+        service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)
+        old_question = {**QUESTION, "review": {**QUESTION.get("review", {}), "contentHash": "new-hash"}}
+        self.assertTrue(service.breakdown_stale(old_question, CONFIG, self.store))
+        self.assertIsNone(service.breakdown_cached(old_question, CONFIG, self.store))
+
+    def test_concurrent_owner_failure_waiter_errors(self):
+        # CACHE-05：生成失败不落缓存；等待方拿到明确错误而非假装成功
+        import threading as _t
+        calls = []
+        def slow_failing_chat(prompt, config):
+            calls.append(prompt)
+            time.sleep(0.3)
+            raise service.AIUpstreamError("上游 500")
+        outcomes = []
+        barrier = _t.Barrier(2)
+        def run():
+            barrier.wait()
+            try:
+                outcomes.append(("ok", service.breakdown(QUESTION, CONFIG, self.store, slow_failing_chat, NOW)))
+            except Exception as exc:
+                outcomes.append(("err", exc))
+        threads = [_t.Thread(target=run) for _ in range(2)]
+        for t in threads: t.start()
+        for t in threads: t.join(timeout=10)
+        self.assertEqual(len(calls), 1)  # owner 上游异常立即失败不重试；等待方不重复调用
+        self.assertTrue(all(kind == "err" for kind, _ in outcomes))
+        self.assertTrue(any("未成功" in str(exc) or "上游" in str(exc) for _, exc in outcomes))
+        self.assertEqual(self.store.find_by_question(QUESTION["id"]), [])  # 失败不落缓存
 
     def test_thin_key_points_rejected(self):
         bad = json.loads(GOOD_BREAKDOWN)

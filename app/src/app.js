@@ -5,7 +5,7 @@ import {renderToday} from './today.js';
 const esc = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
 const store=new Store();
-let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,historyView=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[];
+let rounds=[],pool='core',questions=[],manifest={},byId=new Map(),page='today',module='all',query='',index=0,answers=[],submitted=false,historyView=false,selectedList=[],examResult=null,statusFilter='active',randomIds=null,todayNewIds=[],breakdownLoadedFor='';
 // FR-012 修复：今日练习会话存 sessionStorage，刷新后首页可"继续今日练习（第 N 题）"，不再看似从头开始
 const TODAY_KEY='fde-today-session-v1';
 const dayKey=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
@@ -81,7 +81,7 @@ function render(){
  if(store.failed)store.onStatus('磁盘保存失败，请导出备份',true);
 }
 function navigate(next){if(state().activeExam&&['today','study','review','wrong','favorites','rounds'].includes(next)){toast('模拟考试进行中，请先交卷再查看练习与解析');return;}page=next;index=0;resetQuestion();examResult=null;statusFilter='active';render();}
-function resetQuestion(){answers=[];submitted=false;historyView=false;}
+function resetQuestion(){answers=[];submitted=false;historyView=false;breakdownLoadedFor='';}
 function renderStudy(){
  selectedList=filtered();index=Math.min(index,Math.max(0,selectedList.length-1));
  $('#content').innerHTML=`<div class="filters">${['study','review'].includes(page)?`<label class="sr-only" for="pool">训练范围</label><select id="pool">${poolOptions()}</select>`:''}<label class="sr-only" for="module">考纲模块</label><select id="module"><option value="all">全部章节</option>${MODULES.map(([id,name])=>`<option value="${id}" ${module===id?'selected':''}>${name}</option>`).join('')}</select><label class="sr-only" for="search">搜索题目或考点</label><input id="search" type="search" placeholder="搜索题目或考点" value="${esc(query)}">${page==='wrong'?`<label class="sr-only" for="wstatus">错题状态</label><select id="wstatus"><option value="active" ${statusFilter==='active'?'selected':''}>待纠正</option><option value="待复习" ${statusFilter==='待复习'?'selected':''}>待复习</option><option value="复习中" ${statusFilter==='复习中'?'selected':''}>复习中</option><option value="暂时掌握" ${statusFilter==='暂时掌握'?'selected':''}>暂时掌握</option><option value="已掌握" ${statusFilter==='已掌握'?'selected':''}>已掌握</option><option value="" ${!statusFilter?'selected':''}>全部错题</option></select>`:''}</div><div id="question"></div>`;
@@ -96,7 +96,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103e';
+const UI_BUILD='1103f';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -166,7 +166,7 @@ async function askBreakdown(q,root=document){
   btn.textContent='查看 AI 考点拆解（已缓存）';
   const focusEl=btn.closest('.breakdown-card')?.querySelector('.bd-row b');
   if(focusEl&&focusEl.textContent.startsWith('这道题考什么')){const p=focusEl.closest('.bd-row');p.innerHTML=`<b>这道题考什么：</b>${esc(focus)}`;}
- }catch(error){out.innerHTML='';toast('考点拆解不可用：'+error.message+'（不影响继续刷题）');btn.textContent='生成 AI 考点拆解';}
+ }catch(error){out.innerHTML=`<p class="ai-conflict">生成失败：${esc(error.message||String(error))} · <button id="bd-retry" type="button">重试</button>（不影响继续刷题）</p>`;const rb=out.querySelector('#bd-retry');if(rb)rb.onclick=()=>askBreakdown(q,root);toast('考点拆解不可用：'+error.message+'（不影响继续刷题）');btn.textContent='生成 AI 考点拆解';}
  finally{btn.disabled=false;}
 }
 function wireDiagnosis(q,root=document){
@@ -197,6 +197,21 @@ function wireDiagnosis(q,root=document){
   const hint=b.closest('.breakdown-card')?.querySelector('small.muted');if(hint)hint.textContent=masteryHint(record(q),q);
  });
  const bdBtn=root.querySelector('#breakdown-ask');if(bdBtn)bdBtn.onclick=()=>askBreakdown(q,root);
+ // FR-013-CACHE-02 已作答重进题：自动只读拉取服务端缓存（0 次 AI 调用）；未命中不自动生成，stale 提示版本变化
+ if(submitted&&root===document&&breakdownLoadedFor!==q.id){
+  breakdownLoadedFor=q.id;
+  fetch('/api/ai/breakdown?questionId='+encodeURIComponent(q.id)).then(r=>r.json()).then(res=>{
+   const out=document.querySelector('#breakdown-output');if(!out||out.innerHTML.trim())return;
+   if(res.cached){
+    out.innerHTML=renderBreakdownOutput(res);
+    const ask=document.querySelector('#breakdown-ask');if(ask)ask.textContent='查看 AI 考点拆解（已缓存）';
+    const focus=(res.explanation?.exam_focus||'').trim();const stored=state().records[q.id];
+    if(focus&&stored&&(!stored.breakdown||stored.breakdown.version!==qVersion(q))){stored.breakdown={focus,version:qVersion(q)};save();}
+    const fe=document.querySelector('.breakdown-card .bd-row b');
+    if(fe&&fe.textContent.startsWith('这道题考什么')&&fe.closest('.bd-row').textContent.includes('待生成')){fe.closest('.bd-row').innerHTML=`<b>这道题考什么：</b>${esc(focus)}`;}
+   }else if(res.stale){out.innerHTML='<p class="muted">题库版本已更新，原拆解缓存已失效；可重新生成。</p>';}
+  }).catch(()=>{});
+ }
 }
 function explanation(q){return `<section class="explanation"><h2>${isCorrect(answers,q.answer)?'回答正确':'再理解一次'}</h2><p class="answer-line">正确答案：<strong>${esc(q.answer.join('、'))}</strong></p>${selfEvalCard(q)}${breakdownCard(q)}<p>${esc(q.explanation)}</p><details><summary>干扰项为什么不对</summary>${Object.entries(q.distractors).map(([key,text])=>`<p><b>${esc(key)}：</b>${esc(text)}</p>`).join('')}</details><div class="sources"><h3>官方依据</h3>${q.sources.map(s=>`<div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} · ${esc(s.section)}</a><p>${esc(s.fact)}</p><small>核实 ${esc(s.verifiedAt)} · ${esc(s.version)}</small></div>`).join('')}</div>${q.review?.recheck?`<p class="recheck-note"><b>原400题复核 · ${esc(q.review.recheck.action)}：</b>${esc(q.review.recheck.finding)}</p>`:''}${!isCorrect(answers,q.answer)?`<div class="error-types"><b>记录错因（可选，可修改）：</b>${(()=>{const current=record(q).errorType||'';return ERROR_TYPES.map(([k,label])=>`<button class="error-type ${current===k?'active':''}" data-error-type="${k}">${label}</button>`).join('');})()}</div>`:''}<section class="ai-panel"><div class="ai-head"><b>AI 讲解</b><small>结合题目、标准答案与官方来源生成；不修改原始答案</small><button id="ai-ask">生成 AI 讲解</button></div><div id="ai-output" class="ai-output"></div></section><small class="muted">审校：${esc(q.review?.reviewer||'待核')} · 题目 ${esc(q.id)}</small></section>`;}
 function renderExam(){
@@ -220,7 +235,18 @@ function tick(){const exam=state()?.activeExam;if(!exam)return;const remaining=M
 function finishExam(auto){const exam=state().activeExam;if(!exam)return;try{const result=gradeExam(exam,byId);result.autoSubmitted=auto;for(const row of result.results)recordAnswer(state(),row.question||byId.get(row.id),row.answers,Date.now(),'exam');state().sessions.push(result);state().activeExam=null;examResult=result;save();if(page==='exam')renderResult(result);toast(auto?'时间已到，试卷已自动提交':'模拟考试已保存');}catch(e){toast(e.message);}}
 function renderResult(result){
  const stats=examModuleStats(result,byId);const modName=id=>MODULES.find(m=>m[0]===id)?.[1]||id;
- $('#content').innerHTML=`<section class="result-summary"><h2>${result.points>=70?'达到 70 分参考线':'继续查漏补缺'}</h2><p class="score">${result.points}<small> / 100 分</small></p><p class="muted">自编练习成绩不能预测正式考试成绩。${result.bankVersion!==manifest.version?'这场历史试卷使用旧题库快照，可能含已降级题，分数仅保留作历史记录。':''}</p><p>答对 ${result.correct} / ${result.total} 题${result.autoSubmitted?' · 超时自动提交':''}</p><p class="muted">${result.mode==='short'?'本地短练：单选6分、多选8分；70分为练习参考线。':scoringText()}</p><button id="back-exams">返回模拟考试</button></section>${stats.modules.length?`<section class="reading-block"><h2>模块正误统计</h2>${stats.modules.map(m=>`<div class="progress-row"><div><b>${esc(modName(m.module))}</b><span>${m.correct} / ${m.total}</span></div><progress value="${m.correct}" max="${m.total}">${m.correct}</progress></div>`).join('')}${stats.missing?`<p class="muted">${stats.missing} 题在当前题库中缺失，未计入统计。</p>`:''}</section>`:''}<h2>逐题复盘</h2>${result.results.map((r,i)=>{const q=r.question||byId.get(r.id);return q?`<details class="result-row"><summary><span class="${r.correct?'success':'error'}">${r.correct?'正确':'错误'}</span> ${i+1}. ${esc(q.stem)}</summary><p>你的答案：${esc(r.answers.join('、')||'未作答')}；正确答案：${esc(q.answer.join('、'))}</p><ul>${Object.entries(q.options).map(([k,v])=>`<li><b>${esc(k)}</b> ${esc(v)}</li>`).join('')}</ul><p>${esc(q.explanation)}</p>${q.sources.map(s=>`<p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)} · ${esc(s.section)}</a></p>`).join('')}</details>`:`<p>${esc(r.id)}：该题在当前题库中不可用，历史答案保留。</p>`;}).join('')}`;$('#back-exams').onclick=()=>{examResult=null;renderExam();};
+ $('#content').innerHTML=`<section class="result-summary"><h2>${result.points>=70?'达到 70 分参考线':'继续查漏补缺'}</h2><p class="score">${result.points}<small> / 100 分</small></p><p class="muted">自编练习成绩不能预测正式考试成绩。${result.bankVersion!==manifest.version?'这场历史试卷使用旧题库快照，可能含已降级题，分数仅保留作历史记录。':''}</p><p>答对 ${result.correct} / ${result.total} 题${result.autoSubmitted?' · 超时自动提交':''}</p><p class="muted">${result.mode==='short'?'本地短练：单选6分、多选8分；70分为练习参考线。':scoringText()}</p><button id="back-exams">返回模拟考试</button></section>${stats.modules.length?`<section class="reading-block"><h2>模块正误统计</h2>${stats.modules.map(m=>`<div class="progress-row"><div><b>${esc(modName(m.module))}</b><span>${m.correct} / ${m.total}</span></div><progress value="${m.correct}" max="${m.total}">${m.correct}</progress></div>`).join('')}${stats.missing?`<p class="muted">${stats.missing} 题在当前题库中缺失，未计入统计。</p>`:''}</section>`:''}<h2>逐题复盘</h2>${result.results.map((r,i)=>{const q=r.question||byId.get(r.id);return q?`<details class="result-row"><summary><span class="${r.correct?'success':'error'}">${r.correct?'正确':'错误'}</span> ${i+1}. ${esc(q.stem)}</summary><p>你的答案：${esc(r.answers.join('、')||'未作答')}；正确答案：${esc(q.answer.join('、'))}</p><ul>${Object.entries(q.options).map(([k,v])=>`<li><b>${esc(k)}</b> ${esc(v)}</li>`).join('')}</ul><p>${esc(q.explanation)}</p>${q.sources.map(s=>`<p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)} · ${esc(s.section)}</a></p>`).join('')}<div class="bd-actions"><button class="bd-review" data-qid="${esc(q.id)}" type="button">AI 考点拆解（读取缓存）</button><div class="bd-review-out"></div></div></details>`:`<p>${esc(r.id)}：该题在当前题库中不可用，历史答案保留。</p>`;}).join('')}`;$('#back-exams').onclick=()=>{examResult=null;renderExam();};
+ // 交卷复盘：只读读取拆解缓存（FR-013-CACHE-07），未生成不主动消耗额度
+ document.querySelectorAll('.bd-review').forEach(b=>b.onclick=async()=>{
+  const out=b.parentElement.querySelector('.bd-review-out');if(!out)return;
+  const label='AI 考点拆解（读取缓存）';b.disabled=true;b.textContent='读取缓存…';
+  try{
+   const r=await(await fetch('/api/ai/breakdown?questionId='+encodeURIComponent(b.dataset.qid))).json();
+   if(r.cached){out.innerHTML=renderBreakdownOutput(r);b.textContent='AI 考点拆解（已缓存 · 0 次 AI 调用）';}
+   else{out.innerHTML=`<p class="muted">${r.stale?'该题版本已更新，原拆解已失效；到练习页重新生成。':'该题尚未生成过 AI 拆解；到练习页点“AI 考点拆解”生成（计入每日 30 次额度）。'}</p>`;b.textContent=label;}
+  }catch(e){out.innerHTML='<p class="muted">读取失败，请稍后重试。</p>';b.textContent=label;}
+  b.disabled=false;
+ });
 }
 function renderProgress(){
  const activeQuestions=questions.filter(q=>q.quality?.examUse!=='hold');const learned=activeQuestions.filter(q=>record(q).attempts.length),correct=learned.filter(q=>record(q).lastCorrect),attempts=Object.values(state().records).flatMap(r=>r.attempts);
