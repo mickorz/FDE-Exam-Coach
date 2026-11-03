@@ -1,4 +1,4 @@
-import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE} from './core.js';
+import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE,applySelfEval,setMastery,needsConsolidation,qVersion,CONFIDENCE_LEVELS,OBSTACLE_TYPES,MASTERY_LEVELS} from './core.js';
 import {Store} from './store.js';
 import {renderRounds} from './rounds.js';
 import {renderToday} from './today.js';
@@ -88,7 +88,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1102d';
+const UI_BUILD='1103a';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -104,9 +104,50 @@ function renderQuestion(q,position,total,exam){
  const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;saveTodaySession();renderStudyQuestion();}$('#stem')?.focus();};
  $('#prev').onclick=()=>move(-1);$('#next').onclick=()=>move(1);
  document.querySelectorAll('.error-type').forEach(b=>b.onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.errorType=b.dataset.errorType;state().records[q.id]=item;save();renderQuestion(q,position,total,false);});
+ wireDiagnosis(q);
  const aiBtn=$('#ai-ask');if(aiBtn)aiBtn.onclick=()=>askAI(q,answers);
 }
-function explanation(q){return `<section class="explanation"><h2>${isCorrect(answers,q.answer)?'回答正确':'再理解一次'}</h2><p class="answer-line">正确答案：<strong>${esc(q.answer.join('、'))}</strong></p><p>${esc(q.explanation)}</p><details><summary>干扰项为什么不对</summary>${Object.entries(q.distractors).map(([key,text])=>`<p><b>${esc(key)}：</b>${esc(text)}</p>`).join('')}</details><div class="sources"><h3>官方依据</h3>${q.sources.map(s=>`<div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} · ${esc(s.section)}</a><p>${esc(s.fact)}</p><small>核实 ${esc(s.verifiedAt)} · ${esc(s.version)}</small></div>`).join('')}</div>${q.review?.recheck?`<p class="recheck-note"><b>原400题复核 · ${esc(q.review.recheck.action)}：</b>${esc(q.review.recheck.finding)}</p>`:''}${!isCorrect(answers,q.answer)?`<div class="error-types"><b>记录错因（可选，可修改）：</b>${(()=>{const current=record(q).errorType||'';return ERROR_TYPES.map(([k,label])=>`<button class="error-type ${current===k?'active':''}" data-error-type="${k}">${label}</button>`).join('');})()}</div>`:''}<section class="ai-panel"><div class="ai-head"><b>AI 讲解</b><small>结合题目、标准答案与官方来源生成；不修改原始答案</small><button id="ai-ask">生成 AI 讲解</button></div><div id="ai-output" class="ai-output"></div></section><small class="muted">审校：${esc(q.review?.reviewer||'待核')} · 题目 ${esc(q.id)}</small></section>`;}
+// FR-013 作答自评：把握程度（单选）+ 理解障碍（多选，默认折叠）；答对也能标，靠猜答对不计为掌握
+function selfEvalCard(q){
+ const attempt=record(q).attempts.at(-1)||{};
+ const conf=attempt.confidence||'';const obs=Array.isArray(attempt.obstacles)?attempt.obstacles:[];
+ return `<div class="self-eval" id="self-eval"><b>这次作答你有多大把握？（答对也能标；靠猜答对不会计为已掌握）</b><div class="confidence-row" role="group" aria-label="作答把握程度">${CONFIDENCE_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn confidence-btn ${conf===k?'active':''}" data-conf="${k}">${label}</button>`).join('')}</div><details class="obstacle-picker" ${obs.length?'open':''}><summary>哪里不懂？（可多选，${OBSTACLE_TYPES.length} 类障碍）</summary><div class="obstacle-row">${OBSTACLE_TYPES.map(([k,label])=>`<button type="button" class="chip-btn obstacle-chip ${obs.includes(k)?'active':''}" data-obstacle="${k}">${label}</button>`).join('')}</div></details><small class="muted">标记写入学习记录，多设备同步合并时保留最新标记。</small></div>`;
+}
+// FR-013 考点速览：提交后默认展示（本地数据零等待）；AI 深度拆解生成后 focus 直接替换占位
+function breakdownCard(q){
+ const r=record(q);const focus=(r.breakdown?.focus||'').trim();const stale=!!r.breakdown&&r.breakdown.version&&r.breakdown.version!==qVersion(q);
+ return `<section class="breakdown-card"><h2>考点速览</h2><p class="bd-row"><b>这道题考什么：</b>${focus&&!stale?esc(focus):'<span class="muted">AI 考点拆解待生成——先看主题与下方官方解析</span>'}</p><p class="bd-row"><b>涉及知识点：</b>${esc(q.topic)}${q.sources?.length?`<small> · 来源：${q.sources.map(s=>esc(s.title)).join(' / ')}</small>`:''}</p><div class="mastery-row" role="group" aria-label="掌握状态"><b>真正理解了吗？</b>${MASTERY_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn mastery-btn ${r.mastery===k?'active':''}" data-mastery="${k}">${label}</button>`).join('')}</div><small class="muted">${masteryHint(r,q)}</small></section>`;
+}
+function masteryHint(r,q){
+ if(!r.attempts.length)return '作答后可标记掌握状态。';
+ if(r.mastery==='understood'&&needsConsolidation(r,qVersion(q)))return '题目内容已更新，此前的“已理解”不再生效，请重新确认。';
+ return needsConsolidation(r,qVersion(q))?'“部分理解 / 仍然不懂”会进入待巩固队列，安排再学习。':'已确认理解，已移出待巩固队列。';
+}
+function wireDiagnosis(q){
+ if(!$('#self-eval'))return;
+ const at=record(q).attempts.at(-1)?.at;if(at===undefined)return;
+ document.querySelectorAll('.confidence-btn').forEach(b=>b.onclick=()=>{
+  const attempt=record(q).attempts.at(-1);
+  applySelfEval(state(),q,at,{confidence:b.dataset.conf,obstacles:Array.isArray(attempt.obstacles)?attempt.obstacles:[]});
+  save();
+  document.querySelectorAll('.confidence-btn').forEach(x=>x.classList.toggle('active',x===b));
+ });
+ document.querySelectorAll('.obstacle-chip').forEach(b=>b.onclick=()=>{
+  const attempt=record(q).attempts.at(-1);
+  const cur=new Set(Array.isArray(attempt.obstacles)?attempt.obstacles:[]);
+  cur.has(b.dataset.obstacle)?cur.delete(b.dataset.obstacle):cur.add(b.dataset.obstacle);
+  applySelfEval(state(),q,at,{confidence:attempt.confidence,obstacles:[...cur]});
+  save();b.classList.toggle('active');
+ });
+ document.querySelectorAll('.mastery-btn').forEach(b=>b.onclick=()=>{
+  const r=record(q);const next=r.mastery===b.dataset.mastery?null:b.dataset.mastery;
+  if(next)setMastery(state(),q,next);else{delete r.mastery;delete r.masteryAt;delete r.masteryVersion;}
+  save();
+  document.querySelectorAll('.mastery-btn').forEach(x=>x.classList.toggle('active',next&&x===b));
+  const hint=b.closest('.breakdown-card')?.querySelector('small.muted');if(hint)hint.textContent=masteryHint(record(q),q);
+ });
+}
+function explanation(q){return `<section class="explanation"><h2>${isCorrect(answers,q.answer)?'回答正确':'再理解一次'}</h2><p class="answer-line">正确答案：<strong>${esc(q.answer.join('、'))}</strong></p>${selfEvalCard(q)}${breakdownCard(q)}<p>${esc(q.explanation)}</p><details><summary>干扰项为什么不对</summary>${Object.entries(q.distractors).map(([key,text])=>`<p><b>${esc(key)}：</b>${esc(text)}</p>`).join('')}</details><div class="sources"><h3>官方依据</h3>${q.sources.map(s=>`<div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} · ${esc(s.section)}</a><p>${esc(s.fact)}</p><small>核实 ${esc(s.verifiedAt)} · ${esc(s.version)}</small></div>`).join('')}</div>${q.review?.recheck?`<p class="recheck-note"><b>原400题复核 · ${esc(q.review.recheck.action)}：</b>${esc(q.review.recheck.finding)}</p>`:''}${!isCorrect(answers,q.answer)?`<div class="error-types"><b>记录错因（可选，可修改）：</b>${(()=>{const current=record(q).errorType||'';return ERROR_TYPES.map(([k,label])=>`<button class="error-type ${current===k?'active':''}" data-error-type="${k}">${label}</button>`).join('');})()}</div>`:''}<section class="ai-panel"><div class="ai-head"><b>AI 讲解</b><small>结合题目、标准答案与官方来源生成；不修改原始答案</small><button id="ai-ask">生成 AI 讲解</button></div><div id="ai-output" class="ai-output"></div></section><small class="muted">审校：${esc(q.review?.reviewer||'待核')} · 题目 ${esc(q.id)}</small></section>`;}
 function renderExam(){
  const exam=state().activeExam;
  if(exam){
@@ -177,7 +218,7 @@ async function askAI(q,userAnswers){
  const btn=$('#ai-ask');btn.disabled=true;
  out.innerHTML='<p class="muted">AI 讲解生成中，请稍候…</p>';
  try{
-  const res=await fetch('/api/ai/explain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({questionId:q.id,answers:userAnswers})});
+  const res=await fetch('/api/ai/explain',{method:'POST',headers:{'Content-Type':'application/json','X-FDE-Client':'offline-study'},body:JSON.stringify({questionId:q.id,answers:userAnswers})});
   const data=await res.json();
   if(!res.ok)throw new Error(data.error||'AI 讲解失败');
   out.innerHTML=renderAIOutput(data);
@@ -218,7 +259,7 @@ async function openTerm(term){
  termSheet.hidden=false;$('#term-title').textContent=term;
  $('#term-body').innerHTML='<p class="muted">正在结合本题解释「'+esc(term)+'」，约需十几秒…</p>';
  try{
-  const res=await fetch('/api/ai/term',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({questionId:currentQ.id,term})});
+  const res=await fetch('/api/ai/term',{method:'POST',headers:{'Content-Type':'application/json','X-FDE-Client':'offline-study'},body:JSON.stringify({questionId:currentQ.id,term})});
   const data=await res.json();
   if(!res.ok)throw new Error(data.error||'术语解释失败');
   $('#term-body').innerHTML=renderTermOutput(data);

@@ -17,7 +17,7 @@ function computeDue(now, correct, streak, examDate){
   return due>preExam?Math.max(now+86400000,preExam):due;
 }
 export const isCorrect = (given, correct) => Array.isArray(given) && given.length === correct.length && [...given].sort().join('|') === [...correct].sort().join('|');
-const qVersion = question => question.review?.contentHash || question.version || '2026-10-09';
+export const qVersion = question => question.review?.contentHash || question.version || '2026-10-09';
 export function currentRecord(state, question) {
   const old=state.records[question.id]||{attempts:[],favorite:false};
   const version=qVersion(question);

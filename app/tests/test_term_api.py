@@ -42,11 +42,11 @@ class MockUpstream(BaseHTTPRequestHandler):
         pass
 
 
-def post(port, payload, origin=None):
+def post(port, payload, origin=None, client=True):
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/ai/term",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Origin": origin or f"http://127.0.0.1:{port}"},
+        headers={"Content-Type": "application/json", "Origin": origin or f"http://127.0.0.1:{port}", **({"X-FDE-Client": "offline-study"} if client else {})},
         method="POST",
     )
     try:
@@ -109,6 +109,12 @@ class TermAPITests(unittest.TestCase):
         code, data = post(self.port, {"questionId": "FDE-M1-001", "term": "RAG"}, origin="https://evil.example")
         self.assertEqual(code, 403)
         self.assertIn("跨站", data["error"])
+
+    def test_missing_client_header_rejected(self):
+        # FR-013：AI POST 与 PUT 一致，缺 X-FDE-Client 头拒绝（防跨站简单请求）
+        code, data = post(self.port, {"questionId": "FDE-M1-001", "term": "RAG"}, client=False)
+        self.assertEqual(code, 403)
+        self.assertEqual(data["error"], "请求标识无效")
 
 
 if __name__ == "__main__":

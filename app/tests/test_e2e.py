@@ -176,7 +176,7 @@ class EndToEndTests(unittest.TestCase):
                         if __import__("time").time() > deadline:
                             raise
                         __import__("time").sleep(0.2)
-                request = urllib.request.Request(base + "/api/ai/explain", data=json.dumps({"questionId": "FDE-M1-001", "answers": ["A"]}).encode(), method="POST", headers={"Content-Type": "application/json"})
+                request = urllib.request.Request(base + "/api/ai/explain", data=json.dumps({"questionId": "FDE-M1-001", "answers": ["A"]}).encode(), method="POST", headers={"Content-Type": "application/json", "X-FDE-Client": "offline-study"})
                 try:
                     urllib.request.urlopen(request, timeout=30)
                     self.fail("未配置时应报错")

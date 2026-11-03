@@ -143,6 +143,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self.valid_host(): return self.reply(403, {'error':'只允许本机访问'})
+        if self.headers.get('X-FDE-Client') != 'offline-study': return self.reply(403, {'error':'请求标识无效'})
         path = urllib.parse.urlparse(self.path).path
         if path not in ('/api/ai/explain', '/api/ai/term'): return self.reply(404, {'error':'未找到'})
         origin = self.headers.get('Origin')
