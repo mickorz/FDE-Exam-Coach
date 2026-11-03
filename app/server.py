@@ -145,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host(): return self.reply(403, {'error':'只允许本机访问'})
         if self.headers.get('X-FDE-Client') != 'offline-study': return self.reply(403, {'error':'请求标识无效'})
         path = urllib.parse.urlparse(self.path).path
-        if path not in ('/api/ai/explain', '/api/ai/term'): return self.reply(404, {'error':'未找到'})
+        if path not in ('/api/ai/explain', '/api/ai/term', '/api/ai/breakdown'): return self.reply(404, {'error':'未找到'})
         origin = self.headers.get('Origin')
         if not origin_allowed(origin, self.headers.get('Host','')):
             return self.reply(403, {'error':'拒绝跨站写入'})
@@ -165,6 +165,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(term, str) or not 1 <= len(term.strip()) <= 40:
                     raise ValueError('请求参数无效')
                 record = ai_service.explain_term(question, term.strip(), config, AI)
+            elif path == '/api/ai/breakdown':
+                record = ai_service.breakdown(question, config, AI)
             else:
                 answers = payload.get('answers')
                 if not isinstance(answers, list) or not answers or not all(isinstance(a, str) and len(a) == 1 and a.isalpha() and a.isupper() for a in answers):

@@ -10,6 +10,7 @@ from pathlib import Path
 
 DAILY_LIMIT = 50          # 错题讲解每日限额
 TERM_DAILY_LIMIT = 50     # 划词术语解释每日限额（与讲解分开计数，互不占用）
+BREAKDOWN_DAILY_LIMIT = 30  # AI 考点拆解每日限额（FR-013，缓存命中不耗额）
 
 
 class AIStore:
@@ -19,9 +20,13 @@ class AIStore:
         self.path = Path(data_dir) / "ai-explanations.json"
         self.lock = threading.Lock()
 
-    def cache_key(self, question_id: str, content_hash: str, answers: list, model: str) -> str:
-        """同一题、同一内容版本、同一用户答案、同一模型才命中缓存。"""
-        raw = "|".join([question_id, content_hash, ",".join(sorted(answers)), model])
+    def cache_key(self, question_id: str, content_hash: str, answers: list, model: str, prompt_version: str = "") -> str:
+        """同一题、同一内容版本、同一用户答案、同一模型、同一提示词版本才命中缓存。
+
+        FR-013 评审 #8：prompt_version 缺列导致 v1.1 升级后旧缓存仍命中；现作为键一部分，
+        提示词升级即自动失效旧缓存（不迁移旧数据）。
+        """
+        raw = "|".join([question_id, content_hash, ",".join(sorted(answers)), model, prompt_version])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _load(self) -> dict:
@@ -58,7 +63,7 @@ class AIStore:
         moment = now or datetime.datetime.now()
         return moment.strftime("%Y-%m-%d") if isinstance(moment, datetime.datetime) else str(now)[:10]
 
-    _USAGE_KEYS = {"explain": "usage", "term": "term_usage"}
+    _USAGE_KEYS = {"explain": "usage", "term": "term_usage", "breakdown": "breakdown_usage"}
 
     def usage_today(self, now=None, kind: str = "explain") -> int:
         bucket = self._USAGE_KEYS.get(kind, "usage")

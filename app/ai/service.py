@@ -4,7 +4,7 @@ import datetime
 
 from . import client, prompts
 from .client import AIUpstreamError  # noqa: F401 重新导出，便于 server 统一捕获
-from .store import DAILY_LIMIT, TERM_DAILY_LIMIT
+from .store import DAILY_LIMIT, TERM_DAILY_LIMIT, BREAKDOWN_DAILY_LIMIT
 
 
 class AIError(Exception):
@@ -30,7 +30,7 @@ def explain(question: dict, answers: list, config: dict, store, chat_fn=client.c
     """
     model = config.get("model") or client.DEFAULT_MODEL
     content_hash = question.get("review", {}).get("contentHash") or question.get("version") or "unknown"
-    key = store.cache_key(question["id"], content_hash, answers, model)
+    key = store.cache_key(question["id"], content_hash, answers, model, prompts.PROMPT_VERSION)
 
     hit = store.get(key)
     if hit:
@@ -80,7 +80,7 @@ def explain_term(question: dict, term: str, config: dict, store, chat_fn=client.
     """
     model = config.get("model") or client.DEFAULT_MODEL
     content_hash = question.get("review", {}).get("contentHash") or question.get("version") or "unknown"
-    key = store.cache_key(question["id"], content_hash, ["term:" + term], model)
+    key = store.cache_key(question["id"], content_hash, ["term:" + term], model, prompts.TERM_PROMPT_VERSION)
 
     hit = store.get(key)
     if hit:
@@ -116,4 +116,79 @@ def explain_term(question: dict, term: str, config: dict, store, chat_fn=client.
     }
     store.put(key, record)
     store.bump_usage(now, "term")
+    return {**record, "cached": False}
+
+
+def _validate_breakdown(data: dict, question: dict) -> None:
+    """深度校验拆解输出（FR-013 §3.3）：why_others 必须覆盖全部错误选项，key_points 非空且结构合法。"""
+    missing = [field for field in prompts.BREAKDOWN_REQUIRED_FIELDS if field not in data]
+    if missing:
+        raise ValueError(f"AI 输出缺少字段：{'、'.join(missing)}")
+    points = data["key_points"]
+    if not isinstance(points, list) or len(points) < 2 or not all(
+        isinstance(p, dict) and isinstance(p.get("name"), str) and p["name"].strip()
+        and isinstance(p.get("meaning"), str) and p["meaning"].strip() for p in points
+    ):
+        raise ValueError("key_points 至少 2 条，且每条需含非空的 name 与 meaning")
+    for field in ("exam_focus", "solution_logic", "transfer"):
+        if not isinstance(data[field], str) or not data[field].strip():
+            raise ValueError(f"{field} 不能为空")
+    expected = set(question["options"]) - set(question["answer"])
+    others = data["why_others"]
+    if not isinstance(others, list) or not all(
+        isinstance(o, dict) and isinstance(o.get("option"), str) and isinstance(o.get("reason"), str) and o["reason"].strip()
+        for o in others
+    ):
+        raise ValueError("why_others 每条需含选项字母 option 与非空 reason")
+    got = {o["option"].strip().upper() for o in others}
+    if got != {k.upper() for k in expected}:
+        raise ValueError(f"why_others 必须逐一覆盖全部错误选项（应覆盖 {'、'.join(sorted(expected))}，实际 {('、'.join(sorted(got)) or '无')}）")
+
+
+def breakdown(question: dict, config: dict, store, chat_fn=client.chat, now=None):
+    """生成或返回缓存的 AI 考点拆解（FR-013）。
+
+    与作答无关（不携带用户答案）；服务端以自身题库为准；深度校验失败自动重试一次。
+    """
+    model = config.get("model") or client.DEFAULT_MODEL
+    content_hash = question.get("review", {}).get("contentHash") or question.get("version") or "unknown"
+    key = store.cache_key(question["id"], content_hash, ["breakdown"], model, prompts.BREAKDOWN_PROMPT_VERSION)
+
+    hit = store.get(key)
+    if hit:
+        return {**hit, "cached": True}
+
+    if not config.get("api_key"):
+        raise AIConfigError("尚未配置 AI 服务：请在 local-data/config.json 填入 api_key/base_url/model，或设置环境变量 FDE_AI_API_KEY")
+    if store.usage_today(now, "breakdown") >= BREAKDOWN_DAILY_LIMIT:
+        raise AIQuotaError(f"今日考点拆解已达上限 {BREAKDOWN_DAILY_LIMIT} 次，缓存命中的题目不受影响")
+
+    prompt = prompts.build_breakdown_prompt(question)
+    data = None
+    last_error = ""
+    for attempt in range(2):  # 深度校验失败重试一次（弱模型 why_others 漏项常见）
+        raw = chat_fn(prompt, config)
+        try:
+            data = client.extract_json(raw)
+            _validate_breakdown(data, question)
+            break
+        except ValueError as exc:
+            last_error = str(exc)
+            data = None
+    if data is None:
+        raise AIParseError(f"AI 拆解输出未通过校验（已重试）：{last_error}")
+
+    created_at = (now if isinstance(now, datetime.datetime) else datetime.datetime.now()).isoformat(timespec="seconds")
+    record = {
+        "kind": "breakdown",
+        "key": key,
+        "question_id": question["id"],
+        "content_hash": content_hash,
+        "model": model,
+        "prompt_version": prompts.BREAKDOWN_PROMPT_VERSION,
+        "created_at": created_at,
+        "explanation": data,
+    }
+    store.put(key, record)
+    store.bump_usage(now, "breakdown")
     return {**record, "cached": False}

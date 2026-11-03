@@ -80,3 +80,8 @@ button,label.option,.file-button{touch-action:manipulation}
 .bd-row{margin:6px 0;font-size:14px}
 .mastery-row{margin-top:10px}
 .mastery-row>b{font-size:13px;margin-right:6px}
+.bd-actions{margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#breakdown-output{margin-top:10px}
+#breakdown-output h4{margin:12px 0 4px;font-size:14px}
+.kp-list,.why-list{margin:4px 0;padding-left:18px}
+.kp-list li,.why-list li{margin:4px 0;font-size:14px}

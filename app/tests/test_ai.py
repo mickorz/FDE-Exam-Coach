@@ -211,3 +211,92 @@ class ExplainTermTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# FR-013 考点拆解：五段式 Prompt 与深度校验（why_others 覆盖全部错误选项）
+GOOD_BREAKDOWN = json.dumps({
+    "exam_focus": "考察能否区分部署与精调的目的差异。",
+    "key_points": [
+        {"name": "在线部署", "meaning": "让模型以服务形式可被调用"},
+        {"name": "精调", "meaning": "在已有模型上针对任务继续训练"},
+    ],
+    "solution_logic": "先看两个动作的目的，再逐项排除。",
+    "why_others": [
+        {"option": "A", "reason": "部署不改权重"},
+        {"option": "C", "reason": "二者目的不同"},
+        {"option": "D", "reason": "精调与开放地址无关"},
+    ],
+    "transfer": "如果要求模型稳定采用特定输出格式，应优先考虑什么？",
+    "uncertain_points": [],
+}, ensure_ascii=False)
+
+
+class BreakdownPromptTests(unittest.TestCase):
+    def test_breakdown_prompt_carries_answer_but_not_user_answers(self):
+        prompt = prompts.build_breakdown_prompt(QUESTION)
+        self.assertIn("标准答案：B", prompt)
+        self.assertIn("干扰项说明", prompt)
+        self.assertNotIn("用户答案", prompt)
+        # 硬性要求覆盖全部错误选项
+        for key in ("A", "C", "D"):
+            self.assertIn(key, prompt)
+
+
+class BreakdownTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = AIStore(Path(self._tmp.name))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_success_record_and_independent_quota(self):
+        record = service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)
+        self.assertFalse(record["cached"])
+        self.assertEqual(record["kind"], "breakdown")
+        self.assertEqual(record["prompt_version"], "v1")
+        self.assertEqual(self.store.usage_today(NOW, "breakdown"), 1)
+        self.assertEqual(self.store.usage_today(NOW, "explain"), 0)
+        again = service.breakdown(QUESTION, CONFIG, self.store, fail_chat, NOW)
+        self.assertTrue(again["cached"])
+        self.assertEqual(self.store.usage_today(NOW, "breakdown"), 1)  # 缓存不耗额
+
+    def test_coverage_failure_retries_once_then_succeeds(self):
+        bad = json.loads(GOOD_BREAKDOWN)
+        bad["why_others"] = [o for o in bad["why_others"] if o["option"] != "D"]  # 漏掉 D
+        replies = [json.dumps(bad, ensure_ascii=False), GOOD_BREAKDOWN]
+        calls = []
+        record = service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: (calls.append(p) or replies.pop(0)), NOW)
+        self.assertFalse(record["cached"])
+        self.assertEqual(len(calls), 2)  # 校验失败自动重试一次
+
+    def test_coverage_failure_twice_raises(self):
+        bad = json.loads(GOOD_BREAKDOWN)
+        bad["why_others"] = [{"option": "A", "reason": "只覆盖一个"}]
+        with self.assertRaises(service.AIParseError) as ctx:
+            service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: json.dumps(bad, ensure_ascii=False), NOW)
+        self.assertIn("覆盖", str(ctx.exception))
+
+    def test_thin_key_points_rejected(self):
+        bad = json.loads(GOOD_BREAKDOWN)
+        bad["key_points"] = [{"name": "只有一条", "meaning": "不满足至少 2 条"}]
+        with self.assertRaises(service.AIParseError):
+            service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: json.dumps(bad, ensure_ascii=False), NOW)
+
+    def test_daily_quota_and_config_error(self):
+        with self.assertRaises(service.AIConfigError):
+            service.breakdown(QUESTION, {"api_key": "", "model": "m"}, self.store, fail_chat, NOW)
+        for _ in range(service.BREAKDOWN_DAILY_LIMIT):
+            self.store.bump_usage(NOW, "breakdown")
+        with self.assertRaises(service.AIQuotaError):
+            service.breakdown(QUESTION, CONFIG, self.store, fail_chat, NOW)
+
+    def test_content_hash_changes_cache_key(self):
+        self.assertFalse(service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)["cached"])
+        changed = {**QUESTION, "review": {"contentHash": "new-hash"}}
+        self.assertFalse(service.breakdown(changed, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)["cached"])
+
+    def test_cache_key_includes_prompt_version(self):
+        base = self.store.cache_key("FDE-M1-001", "abc123", ["A"], "m", "v1")
+        self.assertNotEqual(base, self.store.cache_key("FDE-M1-001", "abc123", ["A"], "m", "v2"))
+        self.assertNotEqual(base, self.store.cache_key("FDE-M1-001", "abc123", ["A"], "m"))
