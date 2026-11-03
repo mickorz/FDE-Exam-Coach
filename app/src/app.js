@@ -88,7 +88,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103c';
+const UI_BUILD='1103d';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -119,9 +119,9 @@ function breakdownRows(q){
  const r=record(q);const focus=(r.breakdown?.focus||'').trim();const stale=!!r.breakdown&&r.breakdown.version&&r.breakdown.version!==qVersion(q);
  return `<p class="bd-row"><b>这道题考什么：</b>${focus&&!stale?esc(focus):'<span class="muted">AI 考点拆解待生成——先看主题与下方官方解析</span>'}</p><p class="bd-row"><b>涉及知识点：</b>${esc(q.topic)}${q.sources?.length?`<small> · 来源：${q.sources.map(s=>esc(s.title)).join(' / ')}</small>`:''}</p>`;
 }
-function breakdownCard(q){
- const r=record(q);
- return `<section class="breakdown-card"><h2>考点速览</h2>${breakdownRows(q)}<div class="mastery-row" role="group" aria-label="掌握状态"><b>真正理解了吗？</b>${MASTERY_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn mastery-btn ${r.mastery===k?'active':''}" data-mastery="${k}">${label}</button>`).join('')}</div><small class="muted">${masteryHint(r,q)}</small><div class="bd-actions"><button id="breakdown-ask" type="button" class="primary" ${r.breakdown?.focus&&!stale?'data-cached="1"':''}>${r.breakdown?.focus&&!stale?'查看 AI 考点拆解（已缓存）':'生成 AI 考点拆解'}</button><small class="muted">今日限额 30 次，缓存不耗额；约需十几秒</small></div><div id="breakdown-output"></div></section>`;
+function breakdownCard(q,withMastery=true){
+ const r=record(q);const stale=!!r.breakdown&&r.breakdown.version&&r.breakdown.version!==qVersion(q);
+ return `<section class="breakdown-card"><h2>考点速览</h2>${breakdownRows(q)}${withMastery?`<div class="mastery-row" role="group" aria-label="掌握状态"><b>真正理解了吗？</b>${MASTERY_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn mastery-btn ${r.mastery===k?'active':''}" data-mastery="${k}">${label}</button>`).join('')}</div><small class="muted">${masteryHint(r,q)}</small>`:''}<div class="bd-actions"><button id="breakdown-ask" type="button" class="primary" ${r.breakdown?.focus&&!stale?'data-cached="1"':''}>${r.breakdown?.focus&&!stale?'查看 AI 考点拆解（已缓存）':'生成 AI 考点拆解'}</button><small class="muted">${withMastery?'今日限额 30 次，缓存不耗额；约需十几秒':'内容含答案线索，建议先独立思考；今日限额 30 次，缓存不耗额'}</small></div><div id="breakdown-output"></div></section>`;
 }
 function masteryHint(r,q){
  if(!r.attempts.length)return '作答后可标记掌握状态。';
@@ -280,8 +280,8 @@ function openBreakdownSheet(q){
  const unlocked=submitted&&!exam;
  bdSheet.querySelector('#bd-body').innerHTML=unlocked
   ?breakdownCard(q)
-  :`<section class="breakdown-card"><h2>考点速览</h2>${breakdownRows(q)}<p class="muted">提交答案后解锁：AI 考点深度拆解（五段式）与掌握状态标记——避免提前泄露答案线索。</p></section>`;
- if(unlocked)wireDiagnosis(q,bdSheet);
+  :`${breakdownCard(q,false)}<p class="muted">提交答案后可标记掌握状态：「部分理解 / 仍然不懂」会进入待巩固队列。</p>`;
+ wireDiagnosis(q,bdSheet);
  bdSheet.hidden=false;
 }
 let termCandidate='',termBusy=false;
