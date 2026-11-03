@@ -17,9 +17,10 @@ function computeDue(now, correct, streak, examDate){
   return due>preExam?Math.max(now+86400000,preExam):due;
 }
 export const isCorrect = (given, correct) => Array.isArray(given) && given.length === correct.length && [...given].sort().join('|') === [...correct].sort().join('|');
+const qVersion = question => question.review?.contentHash || question.version || '2026-10-09';
 export function currentRecord(state, question) {
   const old=state.records[question.id]||{attempts:[],favorite:false};
-  const version=question.review?.contentHash || question.version || '2026-10-09';
+  const version=qVersion(question);
   const attempts=old.attempts.filter(a=>a.questionVersion===version);
   const result={...old,attempts,lastCorrect:undefined,due:undefined,streak:0};
   for(const a of attempts)result.streak=a.correct?result.streak+1:0;
@@ -32,7 +33,7 @@ export function recordAnswer(state, question, answers, now=Date.now(), mode) {
   old.streak=currentRecord(state,question).streak;
   const correct = isCorrect(answers, question.answer);
   // mode 记录练习模式（chapter/random/unseen/wrong/favorite/review/exam）；旧备份无此字段，兼容
-  const attempt={at:now,answers:[...answers],correct,questionVersion:question.review?.contentHash || question.version || '2026-10-09'};
+  const attempt={at:now,answers:[...answers],correct,questionVersion:qVersion(question)};
   if(mode)attempt.mode=mode;
   old.attempts.push(attempt);
   old.streak = correct ? (old.streak||0)+1 : 0;
@@ -46,6 +47,71 @@ export const ERROR_TYPES = [
   ['concept','知识点不理解'],['confusion','相似概念混淆'],['memory','记忆不牢固'],['careless','审题失误'],['disputed','题目或答案争议']
 ];
 export const ERROR_TYPE_LABELS = Object.fromEntries(ERROR_TYPES);
+// FR-013 题目理解诊断：把握程度（维度A 单选）与障碍类型（维度B 多选）——答对也可标记，刷完 ≠ 理解
+export const CONFIDENCE_LEVELS = [['sure','确定理解，能解释答案'],['eliminate','不太确定，靠排除法'],['guess','基本靠猜，不知道怎么选']];
+export const OBSTACLE_TYPES = [['knowledge_gap','知识盲区：知识点完全没学过'],['term','术语不懂：专业名词看不懂'],['unclear_goal','考点不明：不知道在考什么'],['cannot_apply','不会应用：知道概念不会选'],['confused','概念混淆：多个选项感觉都对'],['misread','审题失误：忽略条件或关键词']];
+export const MASTERY_LEVELS = [['understood','已理解'],['partial','部分理解'],['lost','仍然不懂']];
+const CONFIDENCE_KEYS = new Set(CONFIDENCE_LEVELS.map(([k])=>k));
+const OBSTACLE_KEYS = new Set(OBSTACLE_TYPES.map(([k])=>k));
+const MASTERY_KEYS = new Set(MASTERY_LEVELS.map(([k])=>k));
+// 自评写入（作答后补标）：定位指定 attempt，写把握程度/障碍与 selfEvalAt（多端合并依据）
+export function applySelfEval(state, question, attemptAt, {confidence, obstacles}, now=Date.now()) {
+  const record = state.records[question.id]; if (!record) return false;
+  const attempt = record.attempts.find(a => a.at === attemptAt && a.questionVersion === qVersion(question));
+  if (!attempt) return false;
+  if (confidence !== undefined) attempt.confidence = confidence;
+  if (obstacles !== undefined) attempt.obstacles = [...obstacles];
+  attempt.selfEvalAt = now;
+  return true;
+}
+// 掌握状态写入：masteryVersion 记录标记时题目版本（题目更新后旧“已理解”失效）
+export function setMastery(state, question, mastery, now=Date.now()) {
+  const record = state.records[question.id]; if (!record) return false;
+  record.mastery = mastery; record.masteryAt = now; record.masteryVersion = qVersion(question);
+  return true;
+}
+// 待巩固队列（计划 v2.1 五条件）：未作答不入队；partial/lost 直接入队；
+// 其余仅在“当前版本 + 最新作答之后（含同毫秒）主动确认已理解”时解除（覆盖 条件1答错/2靠排除或猜/3有障碍/5当前版本未确认掌握）
+export function needsConsolidation(record, currentVersion) {
+  const last = (record?.attempts || []).at(-1);
+  if (!last) return false;
+  if (record.mastery === 'partial' || record.mastery === 'lost') return true;
+  const confirmed = record.mastery === 'understood' && record.masteryVersion === currentVersion && (record.masteryAt || 0) >= last.at;
+  return !confirmed;
+}
+// 蒙对题：最近一次答对但靠猜
+export function luckyCorrect(record) {
+  const last = (record?.attempts || []).at(-1);
+  return !!last && last.correct === true && last.confidence === 'guess';
+}
+// 障碍分布（每题取最近一次作答的标记）
+export function obstacleStats(records) {
+  const counts = {}; let marked = 0;
+  for (const record of Object.values(records || {})) {
+    const obstacles = record?.attempts?.at(-1)?.obstacles;
+    if (!Array.isArray(obstacles) || !obstacles.length) continue;
+    marked++;
+    for (const key of obstacles) counts[key] = (counts[key] || 0) + 1;
+  }
+  return {marked, counts};
+}
+// 掌握状态分布（仅统计有作答的题，含未标记）
+export function masteryStats(records) {
+  const counts = {understood: 0, partial: 0, lost: 0, unmarked: 0};
+  for (const record of Object.values(records || {})) {
+    if (!record?.attempts?.length) continue;
+    if (MASTERY_KEYS.has(record.mastery)) counts[record.mastery]++;
+    else counts.unmarked++;
+  }
+  return counts;
+}
+// 学习挽回指标（DoD #10）：曾处障碍状态 → 当前已确认理解
+export function wasStruggling(record) {
+  return (record?.attempts || []).some(a => !a.correct || a.confidence === 'guess' || a.confidence === 'eliminate' || (Array.isArray(a.obstacles) && a.obstacles.length));
+}
+export function recovered(record, currentVersion) {
+  return wasStruggling(record) && !needsConsolidation(record, currentVersion);
+}
 // 错题四态：完全由当前版本作答历史推导，不落库（借鉴 wrong-notebook 调度不落库设计）
 // 最近一次作答错误：到期为待复习，答错 10 分钟冷却期内为复习中；错后连续答对 1~2 次为暂时掌握，3 次及以上为已掌握
 export function wrongStatus(state, question, now=Date.now()) {
@@ -139,7 +205,11 @@ function validateQuestion(q){
 }
 export function validateBackup(value){
   if(!object(value)||value.schemaVersion!==1||!object(value.records)||!Array.isArray(value.sessions))throw new Error('不是受支持的学习备份');
-  for(const [id,r] of Object.entries(value.records)){if(['__proto__','constructor','prototype'].includes(id)||!object(r)||!Array.isArray(r.attempts))throw new Error('备份题目记录无效：'+id);for(const a of r.attempts){if(!object(a)||!Number.isFinite(a.at)||typeof a.correct!=='boolean'||!choiceList(a.answers))throw new Error('备份答题记录无效：'+id);}}
+  for(const [id,r] of Object.entries(value.records)){if(['__proto__','constructor','prototype'].includes(id)||!object(r)||!Array.isArray(r.attempts))throw new Error('备份题目记录无效：'+id);for(const a of r.attempts){if(!object(a)||!Number.isFinite(a.at)||typeof a.correct!=='boolean'||!choiceList(a.answers))throw new Error('备份答题记录无效：'+id);
+    if(a.confidence!==undefined&&!CONFIDENCE_KEYS.has(a.confidence))throw new Error('备份把握程度无效：'+id);
+    if(a.obstacles!==undefined&&(!Array.isArray(a.obstacles)||a.obstacles.some(k=>!OBSTACLE_KEYS.has(k))))throw new Error('备份障碍标记无效：'+id);
+    if(a.selfEvalAt!==undefined&&!Number.isFinite(a.selfEvalAt))throw new Error('备份自评时间无效：'+id);}
+    if(r.mastery!==undefined&&(!MASTERY_KEYS.has(r.mastery)||(r.masteryAt!==undefined&&!Number.isFinite(r.masteryAt))))throw new Error('备份掌握状态无效：'+id);}
   for(const s of value.sessions){
     if(s.mode!==undefined&&!EXAM_PROFILES[s.mode])throw new Error('备份历史练习模式无效');
     if(!object(s)||typeof s.id!=='string'||!Number.isFinite(s.points)||s.points<0||s.points>100||!Number.isFinite(s.finishedAt)||!Number.isFinite(s.startedAt)||!Number.isInteger(s.total)||!Number.isInteger(s.correct)||s.correct<0||s.correct>s.total||!Array.isArray(s.results)||s.total!==s.results.length)throw new Error('备份考试历史无效');
@@ -163,9 +233,26 @@ export function mergeBackup(current,incoming,{recoverActive=false}={}){
   const examDate=examDateOf(current);
   for(const [id,r] of Object.entries(incoming.records)){
     const old=merged.records[id]; if(!old){merged.records[id]=recalculateRecord(structuredClone(r),examDate);continue;}
-    const attempts=[...old.attempts,...r.attempts].filter((a,i,arr)=>arr.findIndex(b=>b.at===a.at&&b.questionVersion===a.questionVersion&&JSON.stringify(b.answers)===JSON.stringify(a.answers))===i).sort((a,b)=>a.at-b.at);
+    // FR-013：同键 attempt（at+版本+答案）先分组，组内合并自评字段（selfEvalAt 新者胜），避免“事后补的标签”被无标签副本覆盖
+    const groups=new Map();
+    for(const a of [...old.attempts,...r.attempts]){
+      const key=a.at+'|'+a.questionVersion+'|'+JSON.stringify(a.answers);
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(a);
+    }
+    const attempts=[...groups.values()].map(group=>{
+      const base=structuredClone(group[0]);
+      let best=group[0];
+      for(const a of group)if((a.selfEvalAt||0)>(best.selfEvalAt||0))best=a;
+      for(const k of ['confidence','obstacles','selfEvalAt'])if(best[k]!==undefined)base[k]=structuredClone(best[k]);
+      return base;
+    }).sort((a,b)=>a.at-b.at);
     const latest=(r.attempts.at(-1)?.at||0)>(old.attempts.at(-1)?.at||0)?r:old;
-    merged.records[id]=recalculateRecord({...latest,attempts,favorite:!!(old.favorite||r.favorite)},examDate);
+    const mergedRecord={...latest,attempts,favorite:!!(old.favorite||r.favorite)};
+    // FR-013：掌握状态按 masteryAt 新者合并（同刻保 current）
+    const mSrc=(r.masteryAt||0)>(old.masteryAt||0)?r:old;
+    if(mSrc.mastery){mergedRecord.mastery=mSrc.mastery;mergedRecord.masteryAt=mSrc.masteryAt;mergedRecord.masteryVersion=mSrc.masteryVersion;}
+    merged.records[id]=recalculateRecord(mergedRecord,examDate);
   }
   merged.sessions=[...current.sessions,...incoming.sessions].filter((s,i,arr)=>arr.findIndex(t=>t.id===s.id)===i);
   const completed=new Set(merged.sessions.map(s=>s.id));
