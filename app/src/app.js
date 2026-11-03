@@ -96,7 +96,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103f';
+const UI_BUILD='1103g';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -318,6 +318,23 @@ function openBreakdownSheet(q){
   ?breakdownCard(q)
   :`${breakdownCard(q,false)}<p class="muted">提交答案后可标记掌握状态：「部分理解 / 仍然不懂」会进入待巩固队列。</p>`;
  wireDiagnosis(q,bdSheet);
+ // FR-013-CACHE：有缓存直接展示完整拆解，不再多一步点按钮；未命中才给生成入口
+ const act0=bdSheet.querySelector('.bd-actions');if(act0)act0.hidden=true;
+ const out0=bdSheet.querySelector('#breakdown-output');if(out0)out0.innerHTML='<p class="muted">正在读取缓存…</p>';
+ fetch('/api/ai/breakdown?questionId='+encodeURIComponent(q.id)).then(r=>r.json()).then(res=>{
+  const act=bdSheet.querySelector('.bd-actions');const out=bdSheet.querySelector('#breakdown-output');if(!out||!bdSheet.hidden===false&&false)return;
+  if(res.cached){
+   out.innerHTML=renderBreakdownOutput(res);
+   if(act)act.hidden=true;
+   const focus=(res.explanation?.exam_focus||'').trim();const stored=state().records[q.id];
+   if(focus&&stored&&(!stored.breakdown||stored.breakdown.version!==qVersion(q))){stored.breakdown={focus,version:qVersion(q)};save();}
+   const fe=bdSheet.querySelector('.bd-row b');
+   if(fe&&fe.textContent.startsWith('这道题考什么')&&fe.closest('.bd-row').textContent.includes('待生成'))fe.closest('.bd-row').innerHTML=`<b>这道题考什么：</b>${esc(focus)}`;
+  }else{
+   if(act)act.hidden=false;
+   out.innerHTML=res.stale?'<p class="muted">题库版本已更新，原拆解缓存已失效；可重新生成。</p>':'';
+  }
+ }).catch(()=>{const act=bdSheet.querySelector('.bd-actions');const out=bdSheet.querySelector('#breakdown-output');if(out)out.innerHTML='';if(act)act.hidden=false;});
  bdSheet.hidden=false;
 }
 let termCandidate='',termBusy=false;
