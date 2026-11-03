@@ -1,4 +1,4 @@
-import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE,applySelfEval,setMastery,needsConsolidation,qVersion,CONFIDENCE_LEVELS,OBSTACLE_TYPES,MASTERY_LEVELS,obstacleStats,masteryStats,luckyCorrect,recovered} from './core.js';
+import {MODULES,isCorrect,currentRecord,recordAnswer,makeExam,gradeExam,validateBackup,mergeBackup,ERROR_TYPES,wrongStatus,examModuleStats,shuffle,DEFAULT_EXAM_DATE,applySelfEval,setMastery,needsConsolidation,qVersion,CONFIDENCE_LEVELS,OBSTACLE_TYPES,MASTERY_LEVELS,obstacleStats,masteryStats,luckyCorrect,recovered,wasStruggling} from './core.js';
 import {Store} from './store.js';
 import {renderRounds} from './rounds.js';
 import {renderToday} from './today.js';
@@ -74,7 +74,7 @@ function render(){
  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
  document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{if(state().activeExam){toast('模拟考试进行中，请先交卷再进入章节学习');return;}module=b.dataset.module;page='study';index=0;resetQuestion();render();});
  if(['study','review','wrong','favorites'].includes(page))renderStudy();
- if(page==='today'){const queueIds=questions.filter(q=>needsConsolidation(record(q),qVersion(q))).map(q=>q.id);renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render(),resume:todayResume(),diagnosis:{queueCount:queueIds.length,obstacle:obstacleStats(state().records),mastery:masteryStats(state().records),lucky:questions.filter(q=>luckyCorrect(record(q))).length,recovered:questions.filter(q=>recovered(record(q),qVersion(q))).length}});}
+ if(page==='today'){const queueIds=questions.filter(q=>needsConsolidation(record(q),qVersion(q))).map(q=>q.id);renderToday($('#content'),{questions,state,manifest,MODULES,actions:todayActions,save,render:()=>render(),resume:todayResume(),diagnosis:{queueCount:queueIds.length,obstacle:obstacleStats(state().records),mastery:masteryStats(state().records),lucky:questions.filter(q=>luckyCorrect(record(q))).length,recovered:questions.filter(q=>recovered(record(q),qVersion(q))).length,struggling:questions.filter(q=>wasStruggling(record(q))).length}});}
  if(page==='rounds')renderRounds($('#content'),rounds,{reviewOriginal:()=>{pool='original-revised';module='all';query='';page='study';index=0;resetQuestion();render();},study:(id)=>{pool='all';module='all';query=id;page='study';index=0;resetQuestion();render();},practice:()=>{page='exam';render();},focus:()=>{pool='weak';module='all';query='';page='study';index=0;resetQuestion();render();}});
  if(page==='exam')renderExam();if(page==='progress')renderProgress();if(page==='backup')renderBackup();if(page==='settings')renderSettings();
  if(store.pending)store.onStatus('正在保存…');
