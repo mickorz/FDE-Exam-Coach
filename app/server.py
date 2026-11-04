@@ -6,7 +6,7 @@ FDE Exam Coach 扩展（相对 FDE_Learning @abd6687）：
 - 题库内存缓存供 AI 组装提示词。
 其余行为与上游一致。
 """
-import argparse, gzip, json, os, sys, tempfile, threading, mimetypes, urllib.parse
+import argparse, gzip, json, os, sys, tempfile, threading, mimetypes, urllib.parse, time
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -65,6 +65,31 @@ def init_ai():
     global AI
     AI = AIStore(STATE_PATH.parent)
     return AI
+
+
+AUTO_EVENT = threading.Event()
+
+def auto_prewarm_loop():
+    """FR-014：错题/收藏后台自动预热考点拆解。PUT 保存后立即唤醒，另有 5 分钟兑底。"""
+    while True:
+        AUTO_EVENT.wait(timeout=300)
+        AUTO_EVENT.clear()
+        time.sleep(2)  # 避开保存高峰
+        try:
+            from ai.client import load_config
+            from ai import auto
+            config = load_config(STATE_PATH.parent)
+            if not config.get('api_key'):
+                continue
+            with LOCK:
+                state = load_state()
+            auto.run_cycle(state, bank(), config, AI)
+        except Exception as exc:
+            print(f'[auto-prewarm] 本轮跳过：{exc}', flush=True)
+
+def start_auto_prewarm():
+    AUTO_EVENT.set()  # 启动后先跑一轮，消化存量错题/收藏
+    threading.Thread(target=auto_prewarm_loop, name='auto-prewarm', daemon=True).start()
 
 def empty_state():
     return {'schemaVersion': 1, 'revision': 0, 'records': {}, 'sessions': [], 'activeExam': None, 'settings': {}}
@@ -214,6 +239,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(409, {'error':'另一窗口已更新记录。请先导出当前记录，再刷新合并。'})
                 incoming['revision'] = current.get('revision',0) + 1
                 save_state(incoming)
+            AUTO_EVENT.set()  # FR-014：保存后尽快预热新增错题/收藏
             self.reply(200, {'revision':incoming['revision']})
         except (ValueError, json.JSONDecodeError) as exc: self.reply(400, {'error':str(exc)})
         except Exception: self.reply(500, {'error':'本地保存失败，请导出备份并检查磁盘权限。'})
@@ -226,6 +252,7 @@ if __name__ == '__main__':
     if args.data_dir: STATE_PATH = args.data_dir / 'progress.json'
     configure_allowed_hosts(args.allowed_host)
     init_ai()
+    start_auto_prewarm()
     try:
         httpd=ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
         print(f'FDE 备考已启动：http://127.0.0.1:{args.port} ；按 Ctrl+C 关闭。', flush=True)
