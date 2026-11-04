@@ -96,7 +96,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103j';
+const UI_BUILD='1103k';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -110,7 +110,7 @@ function renderQuestion(q,position,total,exam){
  if(!exam)$('#submit').onclick=()=>{if(!answers.length){toast('请先选择答案');return;}recordAnswer(state(),q,answers,Date.now(),studyMode());submitted=true;save();renderQuestion(q,position,total,false);};
  $('#favorite').onclick=()=>{const item=state().records[q.id]||{attempts:[],streak:0};item.favorite=!item.favorite;state().records[q.id]=item;save();$('#favorite').textContent=item.favorite?'已收藏':'收藏';$('#favorite').setAttribute('aria-pressed',String(item.favorite));};
  const termBtn=$('#term-lookup');if(termBtn)termBtn.onclick=openTermManual;
- const bdqBtn=$('#breakdown-quick');if(bdqBtn)bdqBtn.onclick=()=>openBreakdownSheet(q);
+ const bdqBtn=$('#breakdown-quick');if(bdqBtn)bdqBtn.onclick=()=>openBreakdownSheet(q,exam);
  const hvBtn=$('#history-view');if(hvBtn)hvBtn.onclick=()=>{const last=record(q).attempts.at(-1);if(!last)return;answers=Array.isArray(last.answers)?last.answers.slice():[];historyView=true;renderQuestion(q,position,total,false);$('#stem')?.focus();};
  const move=delta=>{resetQuestion();if(exam){state().activeExam.index+=delta;save();renderExam();}else{index+=delta;saveTodaySession();renderStudyQuestion();}$('#stem')?.focus();};
  $('#prev').onclick=()=>move(-1);$('#next').onclick=()=>move(1);
@@ -312,7 +312,7 @@ function closeBreakdownSheet(){bdSheet.hidden=true;}
 bdSheet.querySelector('.term-backdrop').onclick=closeBreakdownSheet;
 bdSheet.querySelector('#bd-close').onclick=closeBreakdownSheet;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!bdSheet.hidden)closeBreakdownSheet();});
-function openBreakdownSheet(q){
+function openBreakdownSheet(q,exam){
  bdSheet.hidden=false; // 先弹窗再干活：后续任何异常都不能阻止抽屉出现
  try{
   const unlocked=submitted&&!exam;
