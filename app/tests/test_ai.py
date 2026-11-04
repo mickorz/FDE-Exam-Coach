@@ -251,16 +251,15 @@ class BreakdownTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_success_record_and_independent_quota(self):
+    def test_success_record_without_quota(self):
         record = service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)
         self.assertFalse(record["cached"])
         self.assertEqual(record["kind"], "breakdown")
         self.assertEqual(record["prompt_version"], "v1")
-        self.assertEqual(self.store.usage_today(NOW, "breakdown"), 1)
+        self.assertEqual(self.store.usage_today(NOW, "breakdown"), 0)  # 限额已按用户要求移除，不再计数
         self.assertEqual(self.store.usage_today(NOW, "explain"), 0)
         again = service.breakdown(QUESTION, CONFIG, self.store, fail_chat, NOW)
         self.assertTrue(again["cached"])
-        self.assertEqual(self.store.usage_today(NOW, "breakdown"), 1)  # 缓存不耗额
 
     def test_coverage_failure_retries_once_then_succeeds(self):
         bad = json.loads(GOOD_BREAKDOWN)
@@ -318,13 +317,9 @@ class BreakdownTests(unittest.TestCase):
         with self.assertRaises(service.AIParseError):
             service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: json.dumps(bad, ensure_ascii=False), NOW)
 
-    def test_daily_quota_and_config_error(self):
+    def test_config_error(self):
         with self.assertRaises(service.AIConfigError):
             service.breakdown(QUESTION, {"api_key": "", "model": "m"}, self.store, fail_chat, NOW)
-        for _ in range(service.BREAKDOWN_DAILY_LIMIT):
-            self.store.bump_usage(NOW, "breakdown")
-        with self.assertRaises(service.AIQuotaError):
-            service.breakdown(QUESTION, CONFIG, self.store, fail_chat, NOW)
 
     def test_content_hash_changes_cache_key(self):
         self.assertFalse(service.breakdown(QUESTION, CONFIG, self.store, lambda p, c: GOOD_BREAKDOWN, NOW)["cached"])

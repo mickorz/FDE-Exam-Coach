@@ -5,7 +5,7 @@ import threading
 
 from . import client, prompts
 from .client import AIUpstreamError  # noqa: F401 重新导出，便于 server 统一捕获
-from .store import DAILY_LIMIT, TERM_DAILY_LIMIT, BREAKDOWN_DAILY_LIMIT
+from .store import DAILY_LIMIT, TERM_DAILY_LIMIT
 
 # FR-013-CACHE-04 同题并发去重：同一缓存键生成中时，后来请求等待并复用结果（单进程内）
 _BREAKDOWN_INFLIGHT: dict = {}
@@ -188,8 +188,6 @@ def breakdown(question: dict, config: dict, store, chat_fn=client.chat, now=None
 
     if not config.get("api_key"):
         raise AIConfigError("尚未配置 AI 服务：请在 local-data/config.json 填入 api_key/base_url/model，或设置环境变量 FDE_AI_API_KEY")
-    if store.usage_today(now, "breakdown") >= BREAKDOWN_DAILY_LIMIT:
-        raise AIQuotaError(f"今日考点拆解已达上限 {BREAKDOWN_DAILY_LIMIT} 次，缓存命中的题目不受影响")
 
     # FR-013-CACHE-04 同键并发去重：首个请求生成，其余等待复用；不同题目互不阻塞
     with _INFLIGHT_LOCK:
@@ -235,7 +233,6 @@ def breakdown(question: dict, config: dict, store, chat_fn=client.chat, now=None
             "explanation": data,
         }
         store.put(key, record)
-        store.bump_usage(now, "breakdown")
         return {**record, "cached": False}
     finally:
         # 无论成败都释放同题去重闸门；失败不落缓存（CACHE-05），等待方读不到缓存即报错

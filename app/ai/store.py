@@ -10,7 +10,6 @@ from pathlib import Path
 
 DAILY_LIMIT = 50          # 错题讲解每日限额
 TERM_DAILY_LIMIT = 50     # 划词术语解释每日限额（与讲解分开计数，互不占用）
-BREAKDOWN_DAILY_LIMIT = 30  # AI 考点拆解每日限额（FR-013，缓存命中不耗额）
 
 
 class AIStore:
@@ -68,7 +67,7 @@ class AIStore:
         moment = now or datetime.datetime.now()
         return moment.strftime("%Y-%m-%d") if isinstance(moment, datetime.datetime) else str(now)[:10]
 
-    _USAGE_KEYS = {"explain": "usage", "term": "term_usage", "breakdown": "breakdown_usage"}
+    _USAGE_KEYS = {"explain": "usage", "term": "term_usage"}
 
     def usage_today(self, now=None, kind: str = "explain") -> int:
         bucket = self._USAGE_KEYS.get(kind, "usage")

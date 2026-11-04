@@ -4,7 +4,7 @@
  * 策略：/ 与 /src/* network-first（在线永远最新，离线回退）；/data/*.json cache-first+后台更新（4MB 题库不重复下载）；/api/* 永不缓存。
  * 发版检查单：下方 VERSION 必须与 src/app.js 的 UI_BUILD 同步递增（tests/version.test.mjs 锁定）。
  */
-const VERSION='1103i';
+const VERSION='1103j';
 const UI_CACHE=`fde-ui-${VERSION}`;
 const DATA_CACHE=`fde-data-${VERSION}`;
 

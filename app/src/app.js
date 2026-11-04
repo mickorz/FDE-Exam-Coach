@@ -96,7 +96,7 @@ function renderStudyQuestion(){
  renderQuestion(selectedList[index],index,selectedList.length,false);
 }
 // UI 构建号：手机 PWA 启动缓存排查用（右下角小字）
-const UI_BUILD='1103i';
+const UI_BUILD='1103j';
 let currentQ=null; // 划词术语解释（关键词系统 P0）：当前展示的题目
 function renderQuestion(q,position,total,exam){
  currentQ=q;const r=record(q);const held=!exam&&q.quality?.examUse==='hold';const ws=!exam?wrongStatus(state(),q):null;const locked=(submitted&&!exam)||held;
@@ -131,7 +131,7 @@ function breakdownRows(q){
 }
 function breakdownCard(q,withMastery=true){
  const r=record(q);const stale=!!r.breakdown&&r.breakdown.version&&r.breakdown.version!==qVersion(q);
- return `<section class="breakdown-card"><h2>考点速览</h2>${breakdownRows(q)}${withMastery?`<div class="mastery-row" role="group" aria-label="掌握状态"><b>真正理解了吗？</b>${MASTERY_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn mastery-btn ${r.mastery===k?'active':''}" data-mastery="${k}">${label}</button>`).join('')}</div><small class="muted">${masteryHint(r,q)}</small>`:''}<div class="bd-actions"><button id="breakdown-ask" type="button" class="primary" ${r.breakdown?.focus&&!stale?'data-cached="1"':''}>${r.breakdown?.focus&&!stale?'查看 AI 考点拆解（已缓存）':'生成 AI 考点拆解'}</button><small class="muted">${withMastery?'今日限额 30 次，缓存不耗额；约需十几秒':'内容含答案线索，建议先独立思考；今日限额 30 次，缓存不耗额'}</small></div><div id="breakdown-output"></div></section>`;
+ return `<section class="breakdown-card"><h2>考点速览</h2>${breakdownRows(q)}${withMastery?`<div class="mastery-row" role="group" aria-label="掌握状态"><b>真正理解了吗？</b>${MASTERY_LEVELS.map(([k,label])=>`<button type="button" class="chip-btn mastery-btn ${r.mastery===k?'active':''}" data-mastery="${k}">${label}</button>`).join('')}</div><small class="muted">${masteryHint(r,q)}</small>`:''}<div class="bd-actions"><button id="breakdown-ask" type="button" class="primary" ${r.breakdown?.focus&&!stale?'data-cached="1"':''}>${r.breakdown?.focus&&!stale?'查看 AI 考点拆解（已缓存）':'生成 AI 考点拆解'}</button><small class="muted">${withMastery?'约需十几秒':'内容含答案线索，建议先独立思考'}</small></div><div id="breakdown-output"></div></section>`;
 }
 function masteryHint(r,q){
  if(!r.attempts.length)return '作答后可标记掌握状态。';

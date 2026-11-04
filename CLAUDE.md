@@ -58,6 +58,12 @@
    - 若无记录，解决完成后再将完整过程沉淀为新文档。
 3. 经验文档建议结构：**问题现象 → 排查过程 → 根因 → 解决方案 → 预防/注意事项**，文件名体现问题关键词，例如 `node-version-conflict.md`。
 
+## 浏览器测试：chrome-use
+
+1. 前端 UI 的调试、bug 复现与回归验证，**优先用 chrome-use 驱动本机 Chrome 完成**（打开页面、点击、断言 DOM、看 console），不要临时安装 playwright 等依赖，也不要默认让用户手动开 Web Inspector 操作。
+2. chrome-use 不可用（如 relay 未连接）时才退回其他方式，并向用户说明原因。
+3. 来源：2026-11-04 考点速览桌面弹窗排查走了 headless chromium 临时环境弯路，用户定案（m01879）。
+
 ## 示例目录：`dev-examples/` —— 开发期沙盒
 
 1. 开发中的脚本试验、联调配置与临时输出一律放 `dev-examples/`（一主题一子目录，kebab-case），
